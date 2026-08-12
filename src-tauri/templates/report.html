@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>__TITLE__</title>
+<style>__UPLOT_CSS__</style>
+<style>
+:root {
+  --bg: #0e1116; --panel: #171b22; --border: #232a35;
+  --text: #e6e9ef; --dim: #8b93a1;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  padding: 24px; max-width: 1080px; margin: 0 auto;
+}
+h1 { font-size: 22px; margin-bottom: 8px; }
+h2 { font-size: 15px; color: var(--dim); margin: 26px 0 10px; text-transform: uppercase; letter-spacing: 1px; }
+.meta { display: flex; gap: 22px; flex-wrap: wrap; color: var(--dim); font-size: 13px; margin-bottom: 8px; }
+.meta b { color: var(--text); }
+.toolbar { margin: 10px 0 4px; }
+.toolbar button {
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+}
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { border: 1px solid var(--border); padding: 7px 12px; text-align: left; }
+th { background: var(--panel); color: var(--dim); font-weight: 600; }
+td.bad { color: #f87171; font-weight: 600; }
+.chart-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+.chart-box h3 { font-size: 13px; color: var(--dim); margin-bottom: 8px; }
+.u-legend { color: var(--dim); font-size: 12px; }
+@media print {
+  body { background: #fff; color: #111; }
+  .toolbar { display: none; }
+  .chart-box { border-color: #ccc; background: #fff; break-inside: avoid; }
+  th, td { border-color: #ccc; }
+  th { background: #f2f2f2; color: #333; }
+  h2 { color: #555; }
+  .meta { color: #555; }
+  .meta b { color: #111; }
+  .u-legend { color: #555; }
+}
+</style>
+</head>
+<body>
+<h1>__TITLE__</h1>
+<div class="meta">__META__</div>
+<div class="toolbar"><button onclick="window.print()">打印 / 另存为 PDF</button></div>
+
+<h2>统计摘要</h2>
+<table>
+  <thead><tr><th>指标</th><th>平均</th><th>峰值</th><th>最低</th></tr></thead>
+  <tbody>__STATS__</tbody>
+</table>
+
+<h2>阈值超限</h2>
+<table>
+  <thead><tr><th>条件</th><th>超限采样占比</th></tr></thead>
+  <tbody>__THRESH__</tbody>
+</table>
+
+<h2>历史曲线</h2>
+<div class="chart-box"><h3>占用率（%）</h3><div id="c-util"></div></div>
+<div class="chart-box"><h3>温度（°C）</h3><div id="c-temp"></div></div>
+<div class="chart-box"><h3>FPS</h3><div id="c-fps"></div></div>
+<div class="chart-box"><h3>网络（MB/s）</h3><div id="c-net"></div></div>
+<div class="chart-box"><h3>磁盘（MB/s）</h3><div id="c-disk"></div></div>
+<div class="chart-box"><h3>功耗（W）</h3><div id="c-power"></div></div>
+
+<script>__UPLOT_JS__</script>
+<script>
+const D = __DATA__;
+const charts = [];
+function axis(fmt) {
+  return { stroke: "#8b93a1", grid: { stroke: "#232a35" }, ticks: { show: false },
+           values: fmt ? (u, vs) => vs.map(fmt) : undefined };
+}
+function mk(elId, seriesDefs, data, yFmt) {
+  const el = document.getElementById(elId);
+  const opts = {
+    width: el.clientWidth || 1000, height: 220,
+    scales: { x: { time: true } },
+    axes: [axis(), axis(yFmt)],
+    series: [
+      {},
+      ...seriesDefs.map(s => ({ label: s.label, stroke: s.color, width: 1.5,
+                                dash: s.dash, points: { show: false } })),
+    ],
+  };
+  charts.push([new uPlot(opts, data, el), el]);
+}
+mk("c-util", [
+  { label: "CPU", color: "#38bdf8" },
+  { label: "内存", color: "#34d399" },
+  { label: "GPU", color: "#c084fc" },
+  { label: "显存", color: "#facc15", dash: [4, 4] },
+], [D.ts, D.cpu, D.memPct, D.gpu, D.vramPct], v => v + "%");
+mk("c-temp", [
+  { label: "CPU", color: "#38bdf8" },
+  { label: "GPU", color: "#c084fc" },
+], [D.ts, D.cpuTemp, D.gpuTemp], v => v + "°");
+mk("c-fps", [{ label: "FPS", color: "#fb923c" }], [D.ts, D.fps]);
+mk("c-net", [
+  { label: "下载", color: "#60a5fa" },
+  { label: "上传", color: "#f472b6", dash: [4, 4] },
+], [D.ts, D.netDown, D.netUp]);
+mk("c-disk", [
+  { label: "读取", color: "#34d399" },
+  { label: "写入", color: "#f87171", dash: [4, 4] },
+], [D.ts, D.diskRead, D.diskWrite]);
+mk("c-power", [
+  { label: "CPU", color: "#38bdf8" },
+  { label: "GPU", color: "#c084fc" },
+], [D.ts, D.cpuPower, D.gpuPower]);
+addEventListener("resize", () => {
+  for (const [c, el] of charts) c.setSize({ width: el.clientWidth, height: 220 });
+});
+</script>
+</body>
+</html>

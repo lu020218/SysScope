@@ -1,0 +1,82 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: transparent;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  user-select: none;
+  cursor: default;
+}
+
+.panel {
+  width: max-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px;
+  background: rgba(14, 17, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.k {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.k.fps {
+  color: #fb923c;
+}
+
+.k.cpu {
+  color: #38bdf8;
+}
+
+.k.gpu {
+  color: #c084fc;
+}
+
+.k.mem {
+  color: #34d399;
+}
+
+.k.net {
+  color: #60a5fa;
+}
+
+.v {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6e9ef;
+  font-variant-numeric: tabular-nums;
+}
+
+.v.fps-v {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fb923c;
+}
+
+.v.warn {
+  color: #f87171;
+}
+
+.sep {
+  width: 1px;
+  height: 11px;
+  background: rgba(255, 255, 255, 0.14);
+}

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- NativeAOT 编译为原生 DLL，目标机无需 .NET 运行时 -->
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <AssemblyName>sysscope_sensors</AssemblyName>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.4" />
+    <RdXmlFile Include="rd.xml" />
+  </ItemGroup>
+
+</Project>

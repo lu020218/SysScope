@@ -1,0 +1,15 @@
+<!-- NativeAOT 运行时指令：LHM 通过泛型 DeviceIOControl<T> 运行时封送结构体，
+     静态分析无法发现，这里强制为相关类型生成封送元数据 -->
+<Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
+  <Application>
+    <Assembly Name="LibreHardwareMonitorLib" Dynamic="Required All" MarshalStructure="Required All" />
+    <Assembly Name="System.Private.CoreLib">
+      <Type Name="System.UInt64" MarshalStructure="Required All" />
+      <Type Name="System.UInt32" MarshalStructure="Required All" />
+      <Type Name="System.Int64" MarshalStructure="Required All" />
+      <Type Name="System.Int32" MarshalStructure="Required All" />
+      <Type Name="System.UInt16" MarshalStructure="Required All" />
+      <Type Name="System.Byte" MarshalStructure="Required All" />
+    </Assembly>
+  </Application>
+</Directives>
