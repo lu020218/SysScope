@@ -69,13 +69,13 @@
             <button data-pane="freq">频率</button>
             <button data-pane="power">电源</button>
           </div>
-          <div class="tab-pane" id="cpu-pane-overview">
+          <div class="tab-pane" id="cpu-pane-overview" data-pane="overview">
             <div class="chart" id="cpu-chart"></div>
           </div>
-          <div class="tab-pane hidden" id="cpu-pane-cores">
+          <div class="tab-pane hidden" id="cpu-pane-cores" data-pane="cores">
             <div id="pe-groups" class="pe-groups"></div>
           </div>
-          <div class="tab-pane hidden" id="cpu-pane-freq">
+          <div class="tab-pane hidden" id="cpu-pane-freq" data-pane="freq">
             <div class="substats freq-stats">
               <span>当前 <b id="fq-cur">--</b></span>
               <span>有效 <b id="fq-eff">--</b></span>
@@ -86,7 +86,7 @@
             </div>
             <div class="clock-grid" id="clock-grid"></div>
           </div>
-          <div class="tab-pane hidden" id="cpu-pane-power">
+          <div class="tab-pane hidden" id="cpu-pane-power" data-pane="power">
             <div class="kv-rows">
               <div class="kv"><span>封装功耗</span><b id="pw-cur">--</b></div>
               <div class="kv"><span>会话峰值功耗</span><b id="pw-peak">--</b></div>
@@ -129,7 +129,7 @@
             <button data-pane="ov" class="active">概览</button>
             <button data-pane="detail">详情</button>
           </div>
-          <div class="tab-pane" id="mem-pane-ov">
+          <div class="tab-pane" id="mem-pane-ov" data-pane="ov">
             <div class="chart" id="mem-chart"></div>
             <div class="substats">
               <span>可用 <b id="mem-avail">--</b></span>
@@ -137,7 +137,7 @@
               <span>硬页错误 <b id="mem-faults">--</b></span>
             </div>
           </div>
-          <div class="tab-pane hidden" id="mem-pane-detail">
+          <div class="tab-pane hidden" id="mem-pane-detail" data-pane="detail">
             <div class="kv-rows kv-2col">
               <div class="kv"><span>已缓存</span><b id="mm-cached">--</b></div>
               <div class="kv"><span>备用 / 已修改</span><b id="mm-standby">--</b></div>
@@ -169,7 +169,7 @@
             <button data-pane="ov" class="active">概览</button>
             <button data-pane="detail">详情</button>
           </div>
-          <div class="tab-pane" id="net-pane-ov">
+          <div class="tab-pane" id="net-pane-ov" data-pane="ov">
             <div class="chart" id="net-chart"></div>
             <div class="substats">
               <span class="legend legend-down">下载</span>
@@ -179,7 +179,7 @@
               <span>丢包 <b id="net-loss">--</b></span>
             </div>
           </div>
-          <div class="tab-pane hidden" id="net-pane-detail">
+          <div class="tab-pane hidden" id="net-pane-detail" data-pane="detail">
             <div class="disk-detail" id="net-detail"></div>
           </div>
         </section>
@@ -206,7 +206,7 @@
             <button data-pane="ov" class="active">概览</button>
             <button data-pane="detail">详情</button>
           </div>
-          <div class="tab-pane" id="disk-pane-ov">
+          <div class="tab-pane" id="disk-pane-ov" data-pane="ov">
             <div class="chart" id="disk-chart"></div>
             <div class="substats" id="disk-info">
               <span class="legend legend-read">读取</span>
@@ -215,7 +215,7 @@
               <span id="disk-temps"></span>
             </div>
           </div>
-          <div class="tab-pane hidden" id="disk-pane-detail">
+          <div class="tab-pane hidden" id="disk-pane-detail" data-pane="detail">
             <div class="disk-detail" id="disk-detail"></div>
           </div>
         </section>
