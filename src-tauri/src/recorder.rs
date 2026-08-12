@@ -69,6 +69,9 @@ pub fn open_db(path: &Path) -> rusqlite::Result<Connection> {
         let _ = std::fs::create_dir_all(dir);
     }
     let conn = Connection::open(path)?;
+    // WAL + busy_timeout：录制写入与报告导出的连接并发时避免 SQLITE_BUSY
+    let _ = conn.pragma_update(None, "journal_mode", "WAL");
+    let _ = conn.busy_timeout(std::time::Duration::from_secs(3));
     init_schema(&conn)?;
     Ok(conn)
 }
