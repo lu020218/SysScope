@@ -76,9 +76,23 @@ pub fn open_db(path: &Path) -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
-/// 启动时清理：只保留最近 MAX_SESSIONS 个会话
+/// 启动时清理：闭合孤儿会话（上次进程退出时未落 ended_at 的，
+/// 以其最后一个采样时刻收尾，使其可正常导出），并只保留最近 MAX_SESSIONS 个
 pub fn prune_old_sessions(path: &Path) {
     let Ok(conn) = open_db(path) else { return };
+    let _ = conn.execute(
+        "UPDATE sessions SET ended_at =
+            (SELECT MAX(ts) FROM samples WHERE session_id = sessions.id)
+         WHERE ended_at IS NULL
+           AND EXISTS (SELECT 1 FROM samples WHERE session_id = sessions.id)",
+        [],
+    );
+    // 无任何采样的空孤儿会话直接删除
+    let _ = conn.execute(
+        "DELETE FROM sessions WHERE ended_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM samples WHERE session_id = sessions.id)",
+        [],
+    );
     let _ = conn.execute(
         "DELETE FROM samples WHERE session_id NOT IN
             (SELECT id FROM sessions ORDER BY started_at DESC LIMIT ?1)",
@@ -112,6 +126,11 @@ impl Recorder {
         }
     }
 
+    /// 当前是否有进行中的会话（供采样循环判断请求状态是否有待处理的变化）
+    pub fn is_active(&self) -> bool {
+        self.session_id.is_some()
+    }
+
     /// 每个采样周期调用一次；根据请求标志开启/写入/结束会话
     pub fn tick(&mut self, snapshot: &Snapshot) {
         let want = self.ctl.requested.load(Ordering::Relaxed);
@@ -135,13 +154,14 @@ impl Recorder {
             }
         }
         let conn = self.conn.as_ref().unwrap();
-        if conn
-            .execute(
-                "INSERT INTO sessions (started_at) VALUES (?1)",
-                params![snapshot.ts],
-            )
-            .is_ok()
-        {
+        let inserted = conn.execute(
+            "INSERT INTO sessions (started_at) VALUES (?1)",
+            params![snapshot.ts],
+        );
+        if let Err(e) = &inserted {
+            eprintln!("[sysscope] recorder: create session failed: {e}");
+        }
+        if inserted.is_ok() {
             let id = conn.last_insert_rowid();
             self.session_id = Some(id);
             self.samples = 0;
@@ -204,9 +224,12 @@ impl Recorder {
                 disk_active,
             ],
         );
-        if r.is_ok() {
-            self.samples += 1;
-            self.ctl.status.lock().unwrap().samples = self.samples;
+        match r {
+            Ok(_) => {
+                self.samples += 1;
+                self.ctl.status.lock().unwrap().samples = self.samples;
+            }
+            Err(e) => eprintln!("[sysscope] recorder: insert sample failed: {e}"),
         }
     }
 
@@ -343,6 +366,91 @@ pub mod tests {
             .unwrap();
         }
         (db_path, sid)
+    }
+
+    /// 端到端：真实采样快照驱动 开始→写入→停止 全流程
+    #[test]
+    #[ignore = "hw: 依赖完整采集环境（WMI/ETW），本地 --include-ignored 运行"]
+    fn recording_lifecycle_with_real_snapshots() {
+        use crate::sampler::{take_snapshot, SamplerCtx};
+        let dir = std::env::temp_dir().join("sysscope-test-lifecycle");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("rec.db");
+
+        let ctl = Arc::new(RecorderCtl::default());
+        let mut rec = Recorder::new(ctl.clone(), db_path.clone());
+        let mut ctx = SamplerCtx::init();
+
+        // 未请求录制：tick 应无副作用
+        rec.tick(&take_snapshot(&mut ctx, 0.5));
+        assert!(!ctl.status.lock().unwrap().active);
+
+        // 开始录制
+        ctl.requested.store(true, Ordering::Relaxed);
+        rec.tick(&take_snapshot(&mut ctx, 0.5));
+        rec.tick(&take_snapshot(&mut ctx, 0.5));
+        let st = ctl.status.lock().unwrap().clone();
+        println!("recording: active={} samples={}", st.active, st.samples);
+        assert!(st.active, "recording should be active");
+        assert!(st.samples >= 2, "samples should accumulate");
+        let sid = st.session_id.unwrap();
+
+        // 停止录制
+        ctl.requested.store(false, Ordering::Relaxed);
+        rec.tick(&take_snapshot(&mut ctx, 0.5));
+        assert!(!ctl.status.lock().unwrap().active, "stop must clear status");
+
+        // 会话应有 ended_at，且能导出报告
+        let conn = open_db(&db_path).unwrap();
+        let ended: Option<u64> = conn
+            .query_row(
+                "SELECT ended_at FROM sessions WHERE id = ?1",
+                params![sid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(ended.is_some(), "ended_at must be set after stop");
+        let report = crate::report::export(&conn, sid, "html", &dir);
+        assert!(report.is_ok(), "export failed: {report:?}");
+    }
+
+    /// 诊断用：转储真实应用数据库的会话状态（仅手动运行）
+    #[test]
+    #[ignore = "diag"]
+    fn dump_real_db_sessions() {
+        let appdata = std::env::var("APPDATA").unwrap();
+        let db = std::path::Path::new(&appdata)
+            .join("com.luhaishan.sysscope")
+            .join("sysscope.db");
+        println!("db: {} (exists={})", db.display(), db.exists());
+        if !db.exists() {
+            return;
+        }
+        let conn = Connection::open(&db).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.started_at, s.ended_at,
+                    (SELECT COUNT(*) FROM samples WHERE session_id = s.id)
+                 FROM sessions s ORDER BY s.id DESC LIMIT 15",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            })
+            .unwrap();
+        for row in rows.flatten() {
+            println!(
+                "session #{}: started={} ended={:?} samples={}",
+                row.0, row.1, row.2, row.3
+            );
+        }
     }
 
     #[test]

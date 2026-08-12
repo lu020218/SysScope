@@ -444,11 +444,19 @@ fn run_sampler(app: &AppHandle, rec_ctl: &Arc<RecorderCtl>, db_path: &std::path:
     loop {
         let interval = Duration::from_millis(SAMPLE_INTERVAL_MS.load(Ordering::Relaxed));
         next += interval;
-        let now = Instant::now();
-        if next > now {
-            std::thread::sleep(next - now);
-        } else {
-            next = now;
+        // 切片睡眠：录制开/停请求与录制器状态不一致时立即唤醒处理，
+        // 停止录制的生效延迟从"一个采样间隔"（最长 5s）压到 ≤200ms
+        loop {
+            let now = Instant::now();
+            if now >= next {
+                next = now;
+                break;
+            }
+            std::thread::sleep((next - now).min(Duration::from_millis(200)));
+            if rec_ctl.requested.load(Ordering::Relaxed) != recorder.is_active() {
+                next = Instant::now();
+                break;
+            }
         }
         let elapsed = last_tick.elapsed().as_secs_f64();
         last_tick = Instant::now();

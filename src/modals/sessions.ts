@@ -4,6 +4,8 @@ import type { RecStatus, SessionMeta } from "../types";
 
 let recording = false;
 let recStartedAt = 0;
+/** 点击代次：用于丢弃点击前已在途的状态轮询结果，避免陈旧值回翻按钮 */
+let clickSeq = 0;
 
 function renderRecordBtn(samples?: number) {
   const btn = $("record-btn");
@@ -19,9 +21,11 @@ function renderRecordBtn(samples?: number) {
 }
 
 async function syncRecStatus() {
+  const seq = clickSeq;
   const st = await invoke<RecStatus>("recording_status");
+  if (seq !== clickSeq) return; // 期间发生过点击，丢弃陈旧结果
   recording = st.active;
-  recStartedAt = st.started_at ?? 0;
+  recStartedAt = st.started_at ?? recStartedAt;
   renderRecordBtn(st.samples);
 }
 
@@ -89,12 +93,15 @@ async function refreshSessions() {
 
 export async function init() {
   await syncRecStatus();
-  setInterval(() => recording && syncRecStatus(), 1000);
+  // 持续轮询，以后端状态为唯一事实来源（采样线程 ≤200ms 内响应开/停请求）
+  setInterval(() => void syncRecStatus(), 1000);
 
   $("record-btn").addEventListener("click", async () => {
-    await invoke(recording ? "stop_recording" : "start_recording");
-    // 采样线程在下个周期真正开/关会话，先乐观更新按钮
-    recording = !recording;
+    clickSeq += 1;
+    const target = !recording;
+    await invoke(target ? "start_recording" : "stop_recording");
+    // 乐观渲染，下一轮轮询以后端为准校正
+    recording = target;
     recStartedAt = Date.now();
     renderRecordBtn();
   });
