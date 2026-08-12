@@ -325,6 +325,15 @@ pub fn open_in_folder(path: String) {
         .spawn();
 }
 
+/// 直接打开报告目录（不存在则先创建），返回其绝对路径供前端展示
+#[tauri::command]
+pub fn open_reports_dir(db: State<DbPath>) -> Result<String, String> {
+    let dir = db.0.parent().unwrap_or(Path::new(".")).join("reports");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;

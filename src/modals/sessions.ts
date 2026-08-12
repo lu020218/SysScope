@@ -125,6 +125,13 @@ export async function init() {
     modal.classList.remove("hidden");
     await refreshSessions();
   });
+  $("open-reports").addEventListener("click", async () => {
+    const dir = await invoke<string>("open_reports_dir");
+    const toast = $("export-toast");
+    toast.textContent = `报告目录：${dir}`;
+    toast.classList.remove("hidden", "error");
+    toast.onclick = null;
+  });
   $("modal-close").addEventListener("click", () => modal.classList.add("hidden"));
   modal.addEventListener("click", (e) => {
     if (e.target === modal) modal.classList.add("hidden");

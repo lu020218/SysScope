@@ -171,7 +171,8 @@ pub fn run() {
             recorder::list_sessions,
             recorder::delete_session,
             recorder::export_report,
-            recorder::open_in_folder
+            recorder::open_in_folder,
+            recorder::open_reports_dir
         ])
         .setup(|app| {
             let ctl = Arc::new(recorder::RecorderCtl::default());

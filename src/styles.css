@@ -822,6 +822,12 @@ body.compact .tab-pane:not(#cpu-pane-overview) {
   font-weight: 700;
 }
 
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .modal-head button {
   background: transparent;
   border: none;
