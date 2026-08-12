@@ -84,7 +84,8 @@ cd src-tauri && cargo test -- --include-ignored
 - `gpu.rs`（NVML 优先，WMI 兜底）/ `fps.rs`（ETW，需管理员）/ `netproc.rs`（每进程网络）
 - `sensors.rs` — LHM 桥 FFI（温度/功耗/每核频率，加载 sysscope_sensors.dll）
 - `ping.rs` / `procdetail.rs` / `recorder.rs` / `report.rs` / `etw_util.rs`
-- 数据位置：`%APPDATA%/com.luhaishan.sysscope/sysscope.db`，报告在同目录 `reports/` 下
+- 数据位置：数据库 `%APPDATA%/com.luhaishan.sysscope/sysscope.db`；
+  报告导出到 `文档/SysScope/reports/`（用户易访问、规避 AppData 可能的 EFS 加密）
 - `sensor-bridge/` — C# 桥接层（LibreHardwareMonitor，NativeAOT 编译为原生 DLL）
 
 重建传感器 DLL（需 .NET 9 SDK + VS C++ 工具链）：

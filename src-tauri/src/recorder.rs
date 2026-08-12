@@ -29,6 +29,10 @@ pub struct RecorderCtl {
 /// 数据库路径（tauri 托管状态）
 pub struct DbPath(pub PathBuf);
 
+/// 报告导出目录（tauri 托管状态）。独立于 DB：DB 放 AppData（用户不直接访问），
+/// 报告放用户文档目录（易访问、非 EFS 加密、可直接双击/分享）
+pub struct ReportsDir(pub PathBuf);
+
 // ---------- 表结构 ----------
 
 fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -306,13 +310,41 @@ pub fn delete_session(db: State<DbPath>, session_id: i64) -> Result<(), String> 
 #[tauri::command]
 pub fn export_report(
     db: State<DbPath>,
+    reports: State<ReportsDir>,
     session_id: i64,
     format: String,
 ) -> Result<String, String> {
     let conn = open_db(&db.0).map_err(|e| e.to_string())?;
-    let reports_dir = db.0.parent().unwrap_or(Path::new(".")).join("reports");
-    std::fs::create_dir_all(&reports_dir).map_err(|e| e.to_string())?;
-    crate::report::export(&conn, session_id, &format, &reports_dir)
+    std::fs::create_dir_all(&reports.0).map_err(|e| e.to_string())?;
+    crate::report::export(&conn, session_id, &format, &reports.0)
+}
+
+/// 一次性迁移：把旧 AppData/reports 下的报告复制到新的文档目录。
+/// 用 read+write 而非 copy，使目标文件继承非加密目录的属性（脱离 EFS）。
+pub fn migrate_legacy_reports(old_dir: &Path, new_dir: &Path) {
+    if !old_dir.exists() || old_dir == new_dir {
+        return;
+    }
+    if std::fs::create_dir_all(new_dir).is_err() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(old_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let src = entry.path();
+        if !src.is_file() {
+            continue;
+        }
+        let Some(name) = src.file_name() else { continue };
+        let dst = new_dir.join(name);
+        if dst.exists() {
+            continue;
+        }
+        if let Ok(bytes) = std::fs::read(&src) {
+            let _ = std::fs::write(&dst, bytes);
+        }
+    }
 }
 
 /// 在资源管理器中定位导出的文件。
@@ -327,11 +359,10 @@ pub fn open_in_folder(path: String) {
 
 /// 直接打开报告目录（不存在则先创建），返回其绝对路径供前端展示
 #[tauri::command]
-pub fn open_reports_dir(db: State<DbPath>) -> Result<String, String> {
-    let dir = db.0.parent().unwrap_or(Path::new(".")).join("reports");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
-    Ok(dir.to_string_lossy().into_owned())
+pub fn open_reports_dir(reports: State<ReportsDir>) -> Result<String, String> {
+    std::fs::create_dir_all(&reports.0).map_err(|e| e.to_string())?;
+    let _ = std::process::Command::new("explorer").arg(&reports.0).spawn();
+    Ok(reports.0.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
