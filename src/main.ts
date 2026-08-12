@@ -93,21 +93,12 @@ async function main() {
     $("overlay-toggle").classList.toggle("active", visible);
   });
 
-  // 置顶
+  // 置顶（图钉）
   let onTop = false;
   $("ontop-toggle").addEventListener("click", async () => {
     onTop = !onTop;
     await invoke("set_main_on_top", { on: onTop });
     $("ontop-toggle").classList.toggle("active", onTop);
-  });
-
-  // 紧凑模式
-  let compact = false;
-  $("compact-toggle").addEventListener("click", async () => {
-    compact = !compact;
-    document.body.classList.toggle("compact", compact);
-    $("compact-toggle").classList.toggle("active", compact);
-    await invoke("set_compact", { on: compact });
   });
 
   // 时间窗切换

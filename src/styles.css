@@ -129,6 +129,12 @@ body {
   border-right: 1px solid var(--line);
 }
 
+/* 置顶图钉激活态 */
+.winctrl button.active {
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.14);
+}
+
 /* 按钮与分段控件 */
 
 .toggle-btn {
@@ -659,11 +665,6 @@ body {
   text-align: right;
 }
 
-body.compact .tabs,
-body.compact .tab-pane:not(#cpu-pane-overview) {
-  display: none;
-}
-
 /* ---------- CPU 每核心条：单行竖状迷你条 ---------- */
 
 .cores {
@@ -992,23 +993,6 @@ body.compact .tab-pane:not(#cpu-pane-overview) {
   padding: 26px 0;
 }
 
-/* ---------- 紧凑模式 ---------- */
-
-body.compact .chart,
-body.compact .cores,
-body.compact .substats,
-body.compact #proc-card {
-  display: none;
-}
-
-body.compact .grid {
-  grid-auto-rows: auto;
-}
-
-body.compact .card {
-  gap: 4px;
-  padding: 12px 16px;
-}
 
 /* ---------- 滚动条与 uPlot ---------- */
 

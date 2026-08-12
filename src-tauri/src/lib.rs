@@ -70,21 +70,6 @@ fn set_main_on_top(app: AppHandle, on: bool) {
     }
 }
 
-/// 紧凑模式：前端隐藏图表后由此调整窗口尺寸
-#[tauri::command]
-fn set_compact(app: AppHandle, on: bool) {
-    let Some(w) = app.get_webview_window("main") else {
-        return;
-    };
-    if on {
-        let _ = w.set_min_size(Some(tauri::LogicalSize::new(760.0, 260.0)));
-        let _ = w.set_size(tauri::LogicalSize::new(900.0, 330.0));
-    } else {
-        let _ = w.set_min_size(Some(tauri::LogicalSize::new(800.0, 560.0)));
-        let _ = w.set_size(tauri::LogicalSize::new(1100.0, 760.0));
-    }
-}
-
 #[tauri::command]
 fn set_autostart(app: AppHandle, enable: bool) -> Result<bool, String> {
     let m = app.autolaunch();
@@ -160,7 +145,6 @@ pub fn run() {
             toggle_overlay,
             window_control,
             set_main_on_top,
-            set_compact,
             set_autostart,
             get_autostart,
             ping::set_ping_target,
