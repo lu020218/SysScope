@@ -619,7 +619,7 @@ function buildGpuCards(gpus: GpuSnapshot[]) {
     card.className = "card gpu-card";
     card.innerHTML = `
       <div class="card-head">
-        <h2 class="gpu-title">GPU${gpus.length > 1 ? ` ${i}` : ""} · ${g.name}</h2>
+        <h2 class="gpu-title"></h2>
         <div class="head-right">
           <span class="tbadge t-thermal hidden">热节流</span>
           <span class="tbadge t-power hidden">功耗墙</span>
@@ -662,6 +662,9 @@ function buildGpuCards(gpus: GpuSnapshot[]) {
           <div class="kv"><span>PCIe 发送</span><b data-kv="pcietx">--</b></div>
         </div>
       </div>`;
+    // GPU 名称来自驱动（外部字符串），用 textContent 填充避免 HTML 注入
+    (card.querySelector(".gpu-title") as HTMLElement).textContent =
+      `GPU${gpus.length > 1 ? ` ${i}` : ""} · ${g.name}`;
     grid.insertBefore(card, $("net-card"));
 
     card.querySelector(".gpu-tabs")!.addEventListener("click", (e) => {
@@ -741,8 +744,14 @@ async function main() {
     { floor: 10 * 1024 * 1024, fmt: fmtRate },
   );
 
+  // 采样线程异常警示：崩溃时显示，恢复出数后自动隐藏
+  await listen("sampler-crashed", () => {
+    $("crash-warn").classList.remove("hidden");
+  });
+
   await listen<Snapshot>("metrics", (event) => {
     const s = event.payload;
+    $("crash-warn").classList.add("hidden");
 
     // GPU 卡片按需（重）建
     if (

@@ -414,22 +414,36 @@ pub fn set_sample_interval(ms: u64) {
     SAMPLE_INTERVAL_MS.store(ms.clamp(MIN_INTERVAL_MS, MAX_INTERVAL_MS), Ordering::Relaxed);
 }
 
+/// 采样主循环（不返回，除非内部 panic 逃逸）
+fn run_sampler(app: &AppHandle, rec_ctl: &Arc<RecorderCtl>, db_path: &PathBuf) {
+    let mut recorder = Recorder::new(rec_ctl.clone(), db_path.clone());
+    let mut ctx = SamplerCtx::init();
+    let mut last_tick = Instant::now();
+    loop {
+        std::thread::sleep(Duration::from_millis(
+            SAMPLE_INTERVAL_MS.load(Ordering::Relaxed),
+        ));
+        let elapsed = last_tick.elapsed().as_secs_f64();
+        last_tick = Instant::now();
+        let snapshot = take_snapshot(&mut ctx, elapsed);
+        recorder.tick(&snapshot);
+        let _ = app.emit("metrics", &snapshot);
+    }
+}
+
 /// 启动后台采样线程：按当前间隔采样并向前端广播 "metrics" 事件；
-/// 录制开启时同步写入 SQLite
+/// 录制开启时同步写入 SQLite。
+/// 守护外壳：任何 panic 被捕获后通知前端并在 3 秒后重建采集器继续，
+/// 避免单次异常让监控静默死亡
 pub fn spawn(app: AppHandle, rec_ctl: Arc<RecorderCtl>, db_path: PathBuf) {
-    std::thread::spawn(move || {
-        let mut recorder = Recorder::new(rec_ctl, db_path);
-        let mut ctx = SamplerCtx::init();
-        let mut last_tick = Instant::now();
-        loop {
-            std::thread::sleep(Duration::from_millis(
-                SAMPLE_INTERVAL_MS.load(Ordering::Relaxed),
-            ));
-            let elapsed = last_tick.elapsed().as_secs_f64();
-            last_tick = Instant::now();
-            let snapshot = take_snapshot(&mut ctx, elapsed);
-            recorder.tick(&snapshot);
-            let _ = app.emit("metrics", &snapshot);
+    std::thread::spawn(move || loop {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_sampler(&app, &rec_ctl, &db_path);
+        }));
+        if let Err(e) = result {
+            eprintln!("[sysscope] sampler panicked, restarting in 3s: {e:?}");
+            let _ = app.emit("sampler-crashed", ());
+            std::thread::sleep(Duration::from_secs(3));
         }
     });
 }

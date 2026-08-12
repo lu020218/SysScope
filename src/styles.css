@@ -190,6 +190,21 @@ body {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+/* 采集异常警示条 */
+
+.crash-warn {
+  background: rgba(248, 113, 113, 0.12);
+  border-bottom: 1px solid rgba(248, 113, 113, 0.4);
+  color: var(--warn);
+  font-size: 12px;
+  text-align: center;
+  padding: 5px 12px;
+}
+
+.crash-warn.hidden {
+  display: none;
+}
+
 /* ---------- 卡片网格 ---------- */
 
 .grid {
