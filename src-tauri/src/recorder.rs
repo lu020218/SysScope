@@ -315,12 +315,13 @@ pub fn export_report(
     crate::report::export(&conn, session_id, &format, &reports_dir)
 }
 
-/// 在资源管理器中定位导出的文件
+/// 在资源管理器中定位导出的文件。
+/// 注意：/select 与路径必须是同一个参数（逗号相连），拆成两个参数会被
+/// explorer 忽略而落到默认目录
 #[tauri::command]
 pub fn open_in_folder(path: String) {
     let _ = std::process::Command::new("explorer")
-        .arg("/select,")
-        .arg(path)
+        .arg(format!("/select,{path}"))
         .spawn();
 }
 
