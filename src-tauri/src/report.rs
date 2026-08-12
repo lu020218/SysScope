@@ -404,7 +404,14 @@ fn render_html(info: &SessionInfo, rows: &[Row]) -> String {
         .replace("__THRESH__", &thresh_html)
         .replace("__UPLOT_CSS__", UPLOT_CSS)
         .replace("__UPLOT_JS__", UPLOT_JS)
-        .replace("__DATA__", &data.to_string())
+        .replace("__DATA__", &escape_json_for_script(data.to_string()))
+}
+
+/// 嵌入 <script> 块前转义 JSON 中的 `<`，防止字符串值（如进程名）
+/// 包含 </script> 逃逸出脚本块。JSON 语法本身不含 `<`，
+/// 替换只作用于字符串字面量内部，解析语义不变
+fn escape_json_for_script(json: String) -> String {
+    json.replace('<', "\\u003c")
 }
 
 #[cfg(test)]
@@ -443,5 +450,40 @@ mod tests {
         // 未知格式与空会话报错
         assert!(super::export(&conn, sid, "pdf", &dir).is_err());
         assert!(super::export(&conn, 9999, "html", &dir).is_err());
+    }
+
+    /// 恶意进程名不得逃逸出 HTML 报告的 <script> 数据块
+    #[test]
+    fn html_report_escapes_hostile_process_names() {
+        let dir = std::env::temp_dir().join("sysscope-test-xss");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (db_path, sid) = make_test_db(&dir);
+        let conn = open_db(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO samples (session_id, ts, cpu_total, fps, fps_process)
+             VALUES (?1, 62000, 10.0, 60.0, ?2)",
+            rusqlite::params![sid, "</script><script>alert(1)</script>"],
+        )
+        .unwrap();
+
+        let path = super::export(&conn, sid, "html", &dir).unwrap();
+        let html = std::fs::read_to_string(path).unwrap();
+        assert!(
+            !html.contains("</script><script>alert"),
+            "hostile process name escaped the data block"
+        );
+    }
+
+    /// 转义函数本身的行为：任何 `<` 不得原样出现
+    #[test]
+    fn script_escape_neutralizes_lt() {
+        let json = r#"{"p":"</script><script>alert(1)</script>"}"#.to_string();
+        let escaped = super::escape_json_for_script(json);
+        assert!(!escaped.contains('<'));
+        assert!(escaped.contains("\\u003c/script"));
+        // 转义后仍是合法 JSON 且值不变
+        let v: serde_json::Value = serde_json::from_str(&escaped).unwrap();
+        assert_eq!(v["p"], "</script><script>alert(1)</script>");
     }
 }
