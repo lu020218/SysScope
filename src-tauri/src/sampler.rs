@@ -1,11 +1,15 @@
-use crate::cpu_topo;
-use crate::disk::{CpuPerf, DiskSampler, MemExt, NetExt, StorageSnapshot};
+use crate::cpu_perf::{self, CpuPerf, CpuPerfSampler};
+use crate::disk::{DiskSampler, StorageSnapshot};
 use crate::fps::{FpsCollector, FpsSnapshot};
 use crate::gpu::{GpuBackend, GpuSnapshot};
+use crate::gpu_proc::GpuProcSampler;
+use crate::mem_ext::{MemExt, MemExtSampler};
+use crate::net_ext::{self, NetExt};
 use crate::netproc::{NetProcCollector, ProcNetStat};
 use crate::ping::{PingProber, PingStats};
 use crate::recorder::{Recorder, RecorderCtl};
 use crate::sensors::{SensorBridge, StorageTemp};
+use crate::wmi_hub::WmiHub;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -154,7 +158,12 @@ pub struct SamplerCtx {
     pub gpu: GpuBackend,
     pub fps: FpsCollector,
     pub networks: Networks,
+    /// WMI 查询入口，各 WMI 依赖的采集器共用
+    pub hub: WmiHub,
     pub disk: DiskSampler,
+    pub mem_ext: MemExtSampler,
+    pub cpu_perf: CpuPerfSampler,
+    pub gpu_proc: GpuProcSampler,
     pub sensors: Option<SensorBridge>,
     pub ping: PingProber,
     pub netproc: NetProcCollector,
@@ -175,12 +184,19 @@ impl SamplerCtx {
         let mut sys = System::new_with_specifics(refresh_kind());
         // 首次刷新仅用于建立 CPU 使用率基线，数据不发送
         sys.refresh_specifics(refresh_kind());
+        let hub = WmiHub::new();
+        let mem_ext = MemExtSampler::new(&hub);
+        let cpu_perf = CpuPerfSampler::new(&hub);
         SamplerCtx {
             sys,
             gpu,
             fps,
             networks: Networks::new_with_refreshed_list(),
+            hub,
             disk: DiskSampler::new(),
+            mem_ext,
+            cpu_perf,
+            gpu_proc: GpuProcSampler::new(),
             sensors,
             ping: PingProber::spawn(),
             netproc: NetProcCollector::init(),
@@ -320,7 +336,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
         .as_ref()
         .map(|s| s.read())
         .unwrap_or_default();
-    let gpu_procs = ctx.disk.sample_gpu_procs().clone();
+    let gpu_procs = ctx.gpu_proc.sample(&ctx.hub).clone();
     let tops = sample_top_procs(&mut ctx.sys, elapsed_secs, &gpu_procs);
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -329,8 +345,8 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
     if let Some(pw) = sensor_data.cpu_power {
         ctx.power_peak = ctx.power_peak.max(pw);
     }
-    let perf = ctx.disk.sample_cpu_perf();
-    let base_mhz = ctx.disk.base_mhz();
+    let perf = ctx.cpu_perf.sample(&ctx.hub);
+    let base_mhz = ctx.cpu_perf.base_mhz();
     let effective_mhz = perf
         .as_ref()
         .filter(|_| base_mhz > 0)
@@ -358,7 +374,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
             swap_total: ctx.sys.total_swap(),
             swap_used: ctx.sys.used_swap(),
             compression: tops.compression,
-            ext: ctx.disk.sample_mem_ext(),
+            ext: ctx.mem_ext.sample(&ctx.hub),
         },
         gpus: {
             let mut gpus = ctx.gpu.sample();
@@ -374,10 +390,10 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
         net: {
             let mut net = sample_net(&mut ctx.networks, elapsed_secs);
             net.ping = ctx.ping.stats();
-            net.ext = ctx.disk.sample_net_ext();
+            net.ext = net_ext::sample(&ctx.hub);
             net
         },
-        storage: ctx.disk.sample(),
+        storage: ctx.disk.sample(&ctx.hub),
         storage_temps: sensor_data.storage,
         top_net: ctx.netproc.sample(&ctx.sys, elapsed_secs),
         top_cpu: tops.top_cpu,
@@ -405,7 +421,7 @@ pub fn get_static_info() -> StaticInfo {
             System::os_version().unwrap_or_default()
         ),
         hostname: System::host_name().unwrap_or_default(),
-        core_classes: cpu_topo::core_efficiency_classes(),
+        core_classes: cpu_perf::core_efficiency_classes(),
     }
 }
 

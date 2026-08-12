@@ -1,7 +1,71 @@
+use crate::wmi_hub::WmiHub;
+use serde::{Deserialize, Serialize};
 use windows::Win32::System::SystemInformation::{
     GetLogicalProcessorInformationEx, RelationProcessorCore,
     SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
 };
+
+#[derive(Serialize, Clone, Default)]
+pub struct CpuPerf {
+    /// % Processor Performance（任务管理器口径，>100 表示睿频）
+    pub perf_pct: f64,
+    /// C-State 驻留占比
+    pub c1_pct: f64,
+    pub c2_pct: f64,
+    pub c3_pct: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename = "Win32_PerfFormattedData_Counters_ProcessorInformation")]
+#[serde(rename_all = "PascalCase")]
+struct ProcessorInformation {
+    name: String,
+    percent_processor_performance: u64,
+    percent_c1_time: u64,
+    percent_c2_time: u64,
+    percent_c3_time: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename = "Win32_Processor")]
+#[serde(rename_all = "PascalCase")]
+struct Win32Processor {
+    max_clock_speed: u32,
+}
+
+/// CPU 性能计数采集：基准频率（静态）+ 有效频率比例与 C-State
+pub struct CpuPerfSampler {
+    base_mhz: u32,
+}
+
+impl CpuPerfSampler {
+    pub fn new(hub: &WmiHub) -> Self {
+        let base_mhz = hub
+            .query::<Win32Processor>()
+            .and_then(|rows| rows.into_iter().next())
+            .map(|p| p.max_clock_speed)
+            .unwrap_or(0);
+        CpuPerfSampler { base_mhz }
+    }
+
+    /// CPU 基准频率（MHz，Win32_Processor.MaxClockSpeed），不可用为 0
+    pub fn base_mhz(&self) -> u32 {
+        self.base_mhz
+    }
+
+    /// 处理器性能计数（_Total 实例）：有效频率比例与 C-State 驻留
+    pub fn sample(&self, hub: &WmiHub) -> Option<CpuPerf> {
+        hub.query::<ProcessorInformation>()?
+            .into_iter()
+            .find(|r| r.name == "_Total")
+            .map(|r| CpuPerf {
+                perf_pct: r.percent_processor_performance as f64,
+                c1_pct: r.percent_c1_time as f64,
+                c2_pct: r.percent_c2_time as f64,
+                c3_pct: r.percent_c3_time as f64,
+            })
+    }
+}
 
 /// 每个逻辑处理器的效率等级（Intel 混合架构：P 核等级高于 E 核；
 /// 非混合架构全为同一等级）。失败时返回空数组。
@@ -64,5 +128,17 @@ mod tests {
                 .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage()),
         );
         assert_eq!(classes.len(), sys.cpus().len());
+    }
+
+    #[test]
+    fn perf_counters_are_plausible() {
+        let hub = WmiHub::new();
+        let s = CpuPerfSampler::new(&hub);
+        println!("base_mhz={}", s.base_mhz());
+        assert!(s.base_mhz() > 500, "implausible base frequency");
+        if let Some(p) = s.sample(&hub) {
+            println!("perf={}% c1={} c2={} c3={}", p.perf_pct, p.c1_pct, p.c2_pct, p.c3_pct);
+            assert!(p.perf_pct > 0.0);
+        }
     }
 }

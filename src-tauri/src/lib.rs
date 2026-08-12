@@ -1,16 +1,19 @@
-mod cpu_topo;
+mod cpu_perf;
 mod disk;
 mod etw_util;
 mod fps;
 mod gpu;
+mod gpu_proc;
+mod mem_ext;
+mod net_ext;
 mod netproc;
-mod netstat;
 mod ping;
 mod procdetail;
 mod recorder;
 mod report;
 mod sampler;
 mod sensors;
+mod wmi_hub;
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
