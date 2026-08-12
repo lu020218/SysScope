@@ -136,6 +136,7 @@ mod tests {
 
     /// 需要管理员权限；启动会话后产生一点网络流量，验证能按 PID 聚合到字节
     #[test]
+    #[ignore = "hw: 需要管理员（ETW 内核网络）与出网流量"]
     fn collects_per_process_bytes() {
         let collector = NetProcCollector::init();
         if !collector.available {

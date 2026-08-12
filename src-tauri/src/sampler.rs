@@ -119,6 +119,8 @@ pub struct GpuProcStat {
 pub struct Snapshot {
     /// Unix 时间戳（毫秒）
     pub ts: u64,
+    /// 本次采样自身耗时（毫秒，自我监控）
+    pub sample_cost_ms: f64,
     pub cpu: CpuSnapshot,
     pub mem: MemSnapshot,
     pub gpus: Vec<GpuSnapshot>,
@@ -317,7 +319,7 @@ fn sample_top_procs(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     let top_disk: Vec<ProcStat> = procs.iter().take(TOP_N).cloned().collect();
-    procs.sort_by(|a, b| b.mem.cmp(&a.mem));
+    procs.sort_by_key(|p| std::cmp::Reverse(p.mem));
     let top_mem: Vec<ProcStat> = procs.into_iter().take(TOP_N).collect();
     TopProcs {
         top_cpu,
@@ -353,6 +355,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
         .map(|p| base_mhz as f64 * p.perf_pct / 100.0);
     Snapshot {
         ts,
+        sample_cost_ms: 0.0,
         cpu: CpuSnapshot {
             total: ctx.sys.global_cpu_usage(),
             per_core: ctx.sys.cpus().iter().map(|c| c.cpu_usage()).collect(),
@@ -430,18 +433,28 @@ pub fn set_sample_interval(ms: u64) {
     SAMPLE_INTERVAL_MS.store(ms.clamp(MIN_INTERVAL_MS, MAX_INTERVAL_MS), Ordering::Relaxed);
 }
 
-/// 采样主循环（不返回，除非内部 panic 逃逸）
-fn run_sampler(app: &AppHandle, rec_ctl: &Arc<RecorderCtl>, db_path: &PathBuf) {
-    let mut recorder = Recorder::new(rec_ctl.clone(), db_path.clone());
+/// 采样主循环（不返回，除非内部 panic 逃逸）。
+/// 目标时刻制节拍：下一拍 = 上一拍目标 + 间隔，采样耗时不再累积漂移；
+/// 单拍耗时超过间隔时跳拍对齐，避免追赶风暴
+fn run_sampler(app: &AppHandle, rec_ctl: &Arc<RecorderCtl>, db_path: &std::path::Path) {
+    let mut recorder = Recorder::new(rec_ctl.clone(), db_path.to_path_buf());
     let mut ctx = SamplerCtx::init();
     let mut last_tick = Instant::now();
+    let mut next = Instant::now();
     loop {
-        std::thread::sleep(Duration::from_millis(
-            SAMPLE_INTERVAL_MS.load(Ordering::Relaxed),
-        ));
+        let interval = Duration::from_millis(SAMPLE_INTERVAL_MS.load(Ordering::Relaxed));
+        next += interval;
+        let now = Instant::now();
+        if next > now {
+            std::thread::sleep(next - now);
+        } else {
+            next = now;
+        }
         let elapsed = last_tick.elapsed().as_secs_f64();
         last_tick = Instant::now();
-        let snapshot = take_snapshot(&mut ctx, elapsed);
+        let t0 = Instant::now();
+        let mut snapshot = take_snapshot(&mut ctx, elapsed);
+        snapshot.sample_cost_ms = t0.elapsed().as_secs_f64() * 1000.0;
         recorder.tick(&snapshot);
         let _ = app.emit("metrics", &snapshot);
     }

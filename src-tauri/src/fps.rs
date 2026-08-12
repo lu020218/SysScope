@@ -405,6 +405,7 @@ mod tests {
     /// 实测 ETW 会话：需要管理员权限；启动后等待几秒，
     /// 若桌面有任何 DXGI 渲染（DWM/浏览器/终端），应能收到 Present 事件
     #[test]
+    #[ignore = "hw: 需要管理员与活动桌面渲染，本地用 --include-ignored 运行"]
     fn etw_session_collects_presents() {
         let collector = FpsCollector::init();
         println!("FPS collector status: {}", collector.status);

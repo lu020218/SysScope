@@ -53,6 +53,7 @@ async function main() {
   await listen<Snapshot>("metrics", (event) => {
     const s = event.payload;
     $("crash-warn").classList.add("hidden");
+    $("sample-cost").textContent = `${s.sample_cost_ms.toFixed(0)} ms`;
 
     const values: Record<string, number> = {
       cpu: s.cpu.total,

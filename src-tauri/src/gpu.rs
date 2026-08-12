@@ -56,7 +56,7 @@ const PCIE_SAMPLE_EVERY: u32 = 5;
 /// GPU 采集后端：优先 NVML（NVIDIA），失败则回退 WMI GPU 性能计数器，
 /// 两者皆不可用时降级为无 GPU 数据
 pub enum GpuBackend {
-    Nvml(NvmlGpu),
+    Nvml(Box<NvmlGpu>),
     Wmi(WmiGpu),
     None,
 }
@@ -66,11 +66,11 @@ impl GpuBackend {
     pub fn init() -> Self {
         match Nvml::init() {
             Ok(nvml) if nvml.device_count().map(|c| c > 0).unwrap_or(false) => {
-                GpuBackend::Nvml(NvmlGpu {
+                GpuBackend::Nvml(Box::new(NvmlGpu {
                     nvml,
                     tick: 0,
                     pcie_cache: None,
-                })
+                }))
             }
             _ => match WmiGpu::init() {
                 Ok(w) => GpuBackend::Wmi(w),
@@ -99,7 +99,7 @@ impl GpuBackend {
 fn sample_nvml(state: &mut NvmlGpu) -> Vec<GpuSnapshot> {
     let count = state.nvml.device_count().unwrap_or(0);
     // 仅对主 GPU 低频采样 PCIe（调用本身有毫秒级开销）
-    if state.tick % PCIE_SAMPLE_EVERY == 0 {
+    if state.tick.is_multiple_of(PCIE_SAMPLE_EVERY) {
         state.pcie_cache = state.nvml.device_by_index(0).ok().map(|dev| {
             (
                 dev.pcie_throughput(PcieUtilCounter::Receive).unwrap_or(0),
@@ -301,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "hw: 需要 GPU 硬件（NVML 或 WMI GPU 计数器）"]
     fn backend_initializes_and_samples() {
         let mut backend = GpuBackend::init();
         let gpus = backend.sample();
@@ -333,6 +334,7 @@ mod tests {
 
     /// WMI 兜底路径独立验证（即使 NVML 可用也要保证 WMI 查询可跑通）
     #[test]
+    #[ignore = "hw: 需要 GPU 硬件与 WMI GPU 计数器"]
     fn wmi_fallback_queries_work() {
         let w = WmiGpu::init().expect("WMI init failed");
         let gpus = w.sample().expect("WMI sample failed");

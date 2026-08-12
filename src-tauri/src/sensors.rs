@@ -125,6 +125,7 @@ mod tests {
 
     /// 需要管理员权限（内核驱动）；无权限或 DLL 缺失时跳过断言
     #[test]
+    #[ignore = "hw: 需要管理员加载 LHM 内核驱动"]
     fn sensor_bridge_reads_cpu_temp() {
         let Some(bridge) = SensorBridge::init() else {
             println!("sensor bridge unavailable, skipping");

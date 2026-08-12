@@ -2,7 +2,7 @@ import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, fmtBytes, setWarn } from "../format";
 import { activePane } from "../tabs";
-import type { Thresholds } from "../thresholds";
+import { FIXED, type Thresholds } from "../thresholds";
 import type { Snapshot } from "../types";
 
 let chart: uPlot;
@@ -32,7 +32,7 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
         : "N/A";
     const faultsEl = $("mem-faults");
     faultsEl.textContent = `${s.mem.hard_faults_ps.toFixed(0)}/s`;
-    setWarn(faultsEl, s.mem.hard_faults_ps > 200);
+    setWarn(faultsEl, s.mem.hard_faults_ps > FIXED.hardFaultsPs);
     chart.setData([ts, buffers.series("mem").slice(start)]);
   }
 
@@ -50,7 +50,7 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
     if (s.mem.commit_limit > 0) {
       const cp = (s.mem.commit_used / s.mem.commit_limit) * 100;
       commitPctEl.textContent = `${cp.toFixed(1)}%`;
-      setWarn(commitPctEl, cp >= 90);
+      setWarn(commitPctEl, cp >= FIXED.commitPct);
     } else {
       commitPctEl.textContent = "N/A";
     }

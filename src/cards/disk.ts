@@ -2,6 +2,7 @@ import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, addInfoBlock, fmtBytes, fmtRate, setWarn } from "../format";
 import { activePane } from "../tabs";
+import { FIXED } from "../thresholds";
 import type { Snapshot } from "../types";
 
 let chart: uPlot;
@@ -23,7 +24,7 @@ export function update(s: Snapshot, ts: number[], start: number) {
   const diskActive = s.storage.disks.reduce((m, d) => Math.max(m, d.active_pct), 0);
   const activeEl = $("disk-active");
   activeEl.textContent = `${diskActive.toFixed(0)}%`;
-  setWarn(activeEl, diskActive >= 90);
+  setWarn(activeEl, diskActive >= FIXED.diskActivePct);
   const read = s.storage.disks.reduce((a, d) => a + d.read_bps, 0);
   const write = s.storage.disks.reduce((a, d) => a + d.write_bps, 0);
   $("disk-read").textContent = fmtRate(read);

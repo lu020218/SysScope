@@ -2,7 +2,7 @@ import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, fmtBytes, fmtRate, setWarn } from "../format";
 import { activePane, wireTabs } from "../tabs";
-import type { Thresholds } from "../thresholds";
+import { FIXED, type Thresholds } from "../thresholds";
 import type { GpuSnapshot, Snapshot } from "../types";
 
 interface GpuCard {
@@ -143,7 +143,7 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
       setWarn(c.tempEl, g.temp_c != null && g.temp_c >= th.gpuTemp);
       if (g.power_w != null && g.power_limit_w != null) {
         c.powerEl.textContent = `${g.power_w.toFixed(0)}/${g.power_limit_w.toFixed(0)} W`;
-        setWarn(c.powerEl, g.power_w >= g.power_limit_w * 0.95);
+        setWarn(c.powerEl, g.power_w >= g.power_limit_w * FIXED.gpuPowerWallRatio);
       } else {
         c.powerEl.textContent = g.power_w != null ? `${g.power_w.toFixed(0)} W` : "N/A";
       }
@@ -185,7 +185,7 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
       setKv(
         "memctrl",
         g.mem_ctrl_pct != null ? `${g.mem_ctrl_pct}%` : "N/A",
-        g.mem_ctrl_pct != null && g.mem_ctrl_pct >= 90,
+        g.mem_ctrl_pct != null && g.mem_ctrl_pct >= FIXED.gpuMemCtrlPct,
       );
       setKv(
         "codec",

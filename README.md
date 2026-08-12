@@ -53,21 +53,37 @@ npm run tauri dev     # 开发运行
 npm run tauri build   # 发布构建
 ```
 
-后端测试：
+后端测试（两层）：
 
 ```bash
 cd src-tauri && cargo test
 ```
 
+```bash
+cd src-tauri && cargo test -- --include-ignored
+```
+
+前者为纯逻辑层（CI 可跑）；后者附加 5 个标注 `#[ignore = "hw: …"]` 的
+硬件实测用例（需要管理员 / NVIDIA GPU / 活动桌面）。
+
 ## 结构
 
-- `src/` — 前端（Vite + TypeScript + uPlot 图表）
-- `src-tauri/src/sampler.rs` — 指标采集（sysinfo，1s 间隔可调，事件推送）
-- `src-tauri/src/gpu.rs` — GPU 指标（NVML 优先，WMI 性能计数器兜底）
-- `src-tauri/src/fps.rs` — FPS 采集（ETW 订阅 DXGI/D3D9 Present 事件，需管理员权限）
-- `src-tauri/src/sensors.rs` — 温度传感器 FFI（加载 sysscope_sensors.dll）
-- `src-tauri/src/recorder.rs` — 会话记录（SQLite，保留最近 30 个会话）
-- `src-tauri/src/report.rs` — 报告导出（HTML 内嵌 uPlot / CSV / JSON / Markdown）
+前端（Vite + TypeScript + uPlot，`src/`）：
+
+- `main.ts` — 引导与 metrics 分发（~150 行）
+- `types.ts` / `format.ts` / `charts.ts`（含 RingBuffers）/ `tabs.ts` / `thresholds.ts`
+- `cards/{cpu,gpu,mem,disk,net,procs}.ts` — 各卡片独立 build/update
+- `modals/{sessions,settings,procdetail}.ts` — 弹窗
+- `overlay.ts` — FPS 悬浮窗（独立入口）
+
+后端（Rust，`src-tauri/src/`）：
+
+- `sampler.rs` — 采样主循环（目标时刻制节拍 + panic 守护自愈）与 Snapshot 组装
+- `wmi_hub.rs` — 唯一的 WMI 连接与查询原语
+- `disk.rs` / `mem_ext.rs` / `cpu_perf.rs` / `net_ext.rs` / `gpu_proc.rs` — WMI 领域采集器
+- `gpu.rs`（NVML 优先，WMI 兜底）/ `fps.rs`（ETW，需管理员）/ `netproc.rs`（每进程网络）
+- `sensors.rs` — LHM 桥 FFI（温度/功耗/每核频率，加载 sysscope_sensors.dll）
+- `ping.rs` / `procdetail.rs` / `recorder.rs` / `report.rs` / `etw_util.rs`
 - 数据位置：`%APPDATA%/com.luhaishan.sysscope/sysscope.db`，报告在同目录 `reports/` 下
 - `sensor-bridge/` — C# 桥接层（LibreHardwareMonitor，NativeAOT 编译为原生 DLL）
 

@@ -2,6 +2,7 @@ import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, addInfoBlock, fmtLinkSpeed, fmtRate, setWarn } from "../format";
 import { activePane } from "../tabs";
+import { FIXED } from "../thresholds";
 import type { Snapshot } from "../types";
 
 let chart: uPlot;
@@ -34,7 +35,10 @@ export function update(s: Snapshot, ts: number[], start: number) {
           ? `${s.net.ping.rtt_ms.toFixed(0)}ms ±${s.net.ping.jitter_ms.toFixed(1)}`
           : "超时";
       pingEl.title = `目标 ${s.net.ping.target} · 均值 ${s.net.ping.avg_ms.toFixed(1)}ms`;
-      setWarn(pingEl, s.net.ping.rtt_ms == null || s.net.ping.rtt_ms > 100);
+      setWarn(
+        pingEl,
+        s.net.ping.rtt_ms == null || s.net.ping.rtt_ms > FIXED.pingRttMs,
+      );
     } else {
       pingEl.textContent = "--";
     }
@@ -42,7 +46,7 @@ export function update(s: Snapshot, ts: number[], start: number) {
     lossEl.textContent = s.net.ping.active
       ? `${s.net.ping.loss_pct.toFixed(0)}%`
       : "--";
-    setWarn(lossEl, s.net.ping.loss_pct > 2);
+    setWarn(lossEl, s.net.ping.loss_pct > FIXED.pingLossPct);
     chart.setData([
       ts,
       buffers.series("down").slice(start),

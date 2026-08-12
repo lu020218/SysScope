@@ -186,6 +186,7 @@ export interface ProcDetail {
 
 export interface Snapshot {
   ts: number;
+  sample_cost_ms: number;
   cpu: CpuSnapshot;
   mem: MemSnapshot;
   gpus: GpuSnapshot[];

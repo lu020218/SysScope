@@ -100,9 +100,9 @@ pub fn core_efficiency_classes() -> Vec<u8> {
                 let eff = proc_rel.EfficiencyClass;
                 // 单处理器组场景取首个组掩码（>64 线程的多组机器暂不细分）
                 let mask = proc_rel.GroupMask[0].Mask;
-                for bit in 0..64usize {
+                for (bit, class) in classes.iter_mut().enumerate().take(64) {
                     if mask & (1usize << bit) != 0 {
-                        classes[bit] = eff;
+                        *class = eff;
                         max_idx = max_idx.max(bit);
                     }
                 }
