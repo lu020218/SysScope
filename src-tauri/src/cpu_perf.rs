@@ -1,3 +1,4 @@
+use crate::pdh::{PdhCounter, PdhQuery};
 use crate::wmi_hub::WmiHub;
 use serde::{Deserialize, Serialize};
 use windows::Win32::System::SystemInformation::{
@@ -16,36 +17,36 @@ pub struct CpuPerf {
 }
 
 #[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_Counters_ProcessorInformation")]
-#[serde(rename_all = "PascalCase")]
-struct ProcessorInformation {
-    name: String,
-    percent_processor_performance: u64,
-    percent_c1_time: u64,
-    percent_c2_time: u64,
-    percent_c3_time: u64,
-}
-
-#[derive(Deserialize)]
 #[serde(rename = "Win32_Processor")]
 #[serde(rename_all = "PascalCase")]
 struct Win32Processor {
     max_clock_speed: u32,
 }
 
-/// CPU 性能计数采集：基准频率（静态）+ 有效频率比例与 C-State
+/// CPU 性能计数采集：基准频率（WMI 一次性静态）+ PDH 有效频率比例与 C-State
 pub struct CpuPerfSampler {
     base_mhz: u32,
+    c_perf: Option<PdhCounter>,
+    c_c1: Option<PdhCounter>,
+    c_c2: Option<PdhCounter>,
+    c_c3: Option<PdhCounter>,
 }
 
 impl CpuPerfSampler {
-    pub fn new(hub: &WmiHub) -> Self {
+    pub fn new(hub: &WmiHub, pdh: &PdhQuery) -> Self {
         let base_mhz = hub
             .query::<Win32Processor>()
             .and_then(|rows| rows.into_iter().next())
             .map(|p| p.max_clock_speed)
             .unwrap_or(0);
-        CpuPerfSampler { base_mhz }
+        let p = |c: &str| pdh.add(&format!("\\Processor Information(_Total)\\{c}"));
+        CpuPerfSampler {
+            base_mhz,
+            c_perf: p("% Processor Performance"),
+            c_c1: p("% C1 Time"),
+            c_c2: p("% C2 Time"),
+            c_c3: p("% C3 Time"),
+        }
     }
 
     /// CPU 基准频率（MHz，Win32_Processor.MaxClockSpeed），不可用为 0
@@ -53,17 +54,15 @@ impl CpuPerfSampler {
         self.base_mhz
     }
 
-    /// 处理器性能计数（_Total 实例）：有效频率比例与 C-State 驻留
-    pub fn sample(&self, hub: &WmiHub) -> Option<CpuPerf> {
-        hub.query::<ProcessorInformation>()?
-            .into_iter()
-            .find(|r| r.name == "_Total")
-            .map(|r| CpuPerf {
-                perf_pct: r.percent_processor_performance as f64,
-                c1_pct: r.percent_c1_time as f64,
-                c2_pct: r.percent_c2_time as f64,
-                c3_pct: r.percent_c3_time as f64,
-            })
+    pub fn sample(&self) -> Option<CpuPerf> {
+        let perf = self.c_perf.as_ref()?.value()?;
+        let v = |c: &Option<PdhCounter>| c.as_ref().and_then(|c| c.value()).unwrap_or(0.0);
+        Some(CpuPerf {
+            perf_pct: perf,
+            c1_pct: v(&self.c_c1),
+            c2_pct: v(&self.c_c2),
+            c3_pct: v(&self.c_c3),
+        })
     }
 }
 
@@ -133,10 +132,14 @@ mod tests {
     #[test]
     fn perf_counters_are_plausible() {
         let hub = WmiHub::new();
-        let s = CpuPerfSampler::new(&hub);
+        let pdh = PdhQuery::new().unwrap();
+        let s = CpuPerfSampler::new(&hub, &pdh);
         println!("base_mhz={}", s.base_mhz());
         assert!(s.base_mhz() > 500, "implausible base frequency");
-        if let Some(p) = s.sample(&hub) {
+        pdh.collect();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        pdh.collect();
+        if let Some(p) = s.sample() {
             println!("perf={}% c1={} c2={} c3={}", p.perf_pct, p.c1_pct, p.c2_pct, p.c3_pct);
             assert!(p.perf_pct > 0.0);
         }

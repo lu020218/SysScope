@@ -1,9 +1,9 @@
-use crate::wmi_hub::WmiHub;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use crate::pdh::{PdhCounter, PdhQuery};
+use serde::Serialize;
+use std::collections::BTreeMap;
 use sysinfo::Disks;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Default)]
 pub struct DiskIo {
     /// PDH 实例名，如 "0 C:"
     pub name: String,
@@ -14,7 +14,7 @@ pub struct DiskIo {
     pub queue_len: f64,
     pub read_iops: f64,
     pub write_iops: f64,
-    /// 平均响应时间（ms，RawData 差分计算；无 IO 的周期为 None）
+    /// 平均响应时间（ms；周期内无 IO 为 None）
     pub read_ms: Option<f64>,
     pub write_ms: Option<f64>,
 }
@@ -32,123 +32,67 @@ pub struct StorageSnapshot {
     pub volumes: Vec<VolumeInfo>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_PerfDisk_PhysicalDisk")]
-#[serde(rename_all = "PascalCase")]
-struct PhysicalDisk {
-    name: String,
-    percent_idle_time: u64,
-    disk_read_bytes_persec: u64,
-    disk_write_bytes_persec: u64,
-    current_disk_queue_length: u32,
-    disk_reads_persec: u32,
-    disk_writes_persec: u32,
-}
-
-/// 响应时间必须用原始计数器差分：格式化版 AvgDisksecPerRead 是整数秒，
-/// 亚毫秒级延迟会被截断为 0
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfRawData_PerfDisk_PhysicalDisk")]
-#[serde(rename_all = "PascalCase")]
-struct RawDisk {
-    name: String,
-    avg_disksec_per_read: u64,
-    #[serde(rename = "AvgDisksecPerRead_Base")]
-    avg_disksec_per_read_base: u32,
-    avg_disksec_per_write: u64,
-    #[serde(rename = "AvgDisksecPerWrite_Base")]
-    avg_disksec_per_write_base: u32,
-    #[serde(rename = "Frequency_PerfTime")]
-    frequency_perf_time: u64,
-}
-
-#[derive(Default, Clone, Copy)]
-struct RawLatencySample {
-    read_ticks: u64,
-    read_ops: u32,
-    write_ticks: u64,
-    write_ops: u32,
-}
-
-/// 磁盘 I/O 采集：WMI 性能计数器 + sysinfo 分区空间
+/// 磁盘 I/O 采集：PDH PhysicalDisk 计数器 + sysinfo 分区空间
 pub struct DiskSampler {
     volumes: Disks,
-    /// 上一轮原始延迟计数（按实例名），用于差分
-    prev_latency: HashMap<String, RawLatencySample>,
+    c_idle: Option<PdhCounter>,
+    c_read_bps: Option<PdhCounter>,
+    c_write_bps: Option<PdhCounter>,
+    c_queue: Option<PdhCounter>,
+    c_read_iops: Option<PdhCounter>,
+    c_write_iops: Option<PdhCounter>,
+    c_read_lat: Option<PdhCounter>,
+    c_write_lat: Option<PdhCounter>,
 }
 
 impl DiskSampler {
-    pub fn new() -> Self {
+    pub fn new(pdh: &PdhQuery) -> Self {
+        let p = |c: &str| pdh.add(&format!("\\PhysicalDisk(*)\\{c}"));
         DiskSampler {
             volumes: Disks::new_with_refreshed_list(),
-            prev_latency: HashMap::new(),
+            c_idle: p("% Idle Time"),
+            c_read_bps: p("Disk Read Bytes/sec"),
+            c_write_bps: p("Disk Write Bytes/sec"),
+            c_queue: p("Current Disk Queue Length"),
+            c_read_iops: p("Disk Reads/sec"),
+            c_write_iops: p("Disk Writes/sec"),
+            c_read_lat: p("Avg. Disk sec/Read"),
+            c_write_lat: p("Avg. Disk sec/Write"),
         }
     }
 
-    /// 差分计算每盘读写平均响应时间（ms）
-    fn sample_latency(&mut self, hub: &WmiHub) -> HashMap<String, (Option<f64>, Option<f64>)> {
-        let mut out = HashMap::new();
-        let Some(rows) = hub.query::<RawDisk>() else {
-            return out;
-        };
-        for r in rows {
-            if r.name == "_Total" {
-                continue;
-            }
-            let cur = RawLatencySample {
-                read_ticks: r.avg_disksec_per_read,
-                read_ops: r.avg_disksec_per_read_base,
-                write_ticks: r.avg_disksec_per_write,
-                write_ops: r.avg_disksec_per_write_base,
-            };
-            let freq = r.frequency_perf_time.max(1) as f64;
-            if let Some(prev) = self.prev_latency.get(&r.name) {
-                let lat = |ticks: u64, pticks: u64, ops: u32, pops: u32| -> Option<f64> {
-                    let dops = ops.wrapping_sub(pops);
-                    if dops == 0 {
-                        return None;
+    pub fn sample(&mut self) -> StorageSnapshot {
+        // 按实例名聚合各计数器数组（BTreeMap 保证盘序稳定）
+        let mut map: BTreeMap<String, DiskIo> = BTreeMap::new();
+        let mut fill = |c: &Option<PdhCounter>, set: &mut dyn FnMut(&mut DiskIo, f64)| {
+            if let Some(c) = c {
+                for (name, v) in c.array() {
+                    if name == "_Total" {
+                        continue;
                     }
-                    let dticks = ticks.wrapping_sub(pticks) as f64;
-                    Some(dticks / freq / dops as f64 * 1000.0)
-                };
-                out.insert(
-                    r.name.clone(),
-                    (
-                        lat(cur.read_ticks, prev.read_ticks, cur.read_ops, prev.read_ops),
-                        lat(cur.write_ticks, prev.write_ticks, cur.write_ops, prev.write_ops),
-                    ),
-                );
+                    let e = map.entry(name.clone()).or_insert_with(|| DiskIo {
+                        name,
+                        ..DiskIo::default()
+                    });
+                    set(e, v);
+                }
             }
-            self.prev_latency.insert(r.name, cur);
-        }
-        out
-    }
-
-    pub fn sample(&mut self, hub: &WmiHub) -> StorageSnapshot {
-        let latency = self.sample_latency(hub);
-        let disks = hub
-            .query::<PhysicalDisk>()
-            .map(|rows| {
-                rows.into_iter()
-                    .filter(|d| d.name != "_Total")
-                    .map(|d| {
-                        let (read_ms, write_ms) =
-                            latency.get(&d.name).copied().unwrap_or((None, None));
-                        DiskIo {
-                            active_pct: (100u64.saturating_sub(d.percent_idle_time)) as f32,
-                            read_bps: d.disk_read_bytes_persec as f64,
-                            write_bps: d.disk_write_bytes_persec as f64,
-                            queue_len: d.current_disk_queue_length as f64,
-                            read_iops: d.disk_reads_persec as f64,
-                            write_iops: d.disk_writes_persec as f64,
-                            read_ms,
-                            write_ms,
-                            name: d.name,
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        };
+        fill(&self.c_idle, &mut |e, v| {
+            e.active_pct = (100.0 - v).clamp(0.0, 100.0) as f32;
+        });
+        fill(&self.c_read_bps, &mut |e, v| e.read_bps = v);
+        fill(&self.c_write_bps, &mut |e, v| e.write_bps = v);
+        fill(&self.c_queue, &mut |e, v| e.queue_len = v);
+        fill(&self.c_read_iops, &mut |e, v| e.read_iops = v);
+        fill(&self.c_write_iops, &mut |e, v| e.write_iops = v);
+        // PDH 直接给平均延迟（秒）；周期内无 IO 时为 0，映射为 None
+        fill(&self.c_read_lat, &mut |e, v| {
+            e.read_ms = (v > 0.0).then_some(v * 1000.0);
+        });
+        fill(&self.c_write_lat, &mut |e, v| {
+            e.write_ms = (v > 0.0).then_some(v * 1000.0);
+        });
 
         self.volumes.refresh(true);
         let mut volumes: Vec<VolumeInfo> = self
@@ -163,7 +107,10 @@ impl DiskSampler {
         volumes.sort_by(|a, b| a.mount.cmp(&b.mount));
         volumes.dedup_by(|a, b| a.mount == b.mount);
 
-        StorageSnapshot { disks, volumes }
+        StorageSnapshot {
+            disks: map.into_values().collect(),
+            volumes,
+        }
     }
 }
 
@@ -173,12 +120,12 @@ mod tests {
 
     #[test]
     fn disk_sampler_produces_plausible_values() {
-        let hub = WmiHub::new();
-        let mut s = DiskSampler::new();
-        // 第一次查询计数器可能全为 0（延迟差分也需要基线），取第二次
-        let _ = s.sample(&hub);
+        let pdh = PdhQuery::new().unwrap();
+        let mut s = DiskSampler::new(&pdh);
+        pdh.collect();
         std::thread::sleep(std::time::Duration::from_millis(600));
-        let snap = s.sample(&hub);
+        pdh.collect();
+        let snap = s.sample();
         println!(
             "disks: {:?}",
             snap.disks

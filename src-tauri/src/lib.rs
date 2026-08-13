@@ -7,6 +7,7 @@ mod gpu_proc;
 mod mem_ext;
 mod net_ext;
 mod netproc;
+mod pdh;
 mod ping;
 mod procdetail;
 mod recorder;

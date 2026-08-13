@@ -1,5 +1,6 @@
-use crate::wmi_hub::WmiHub;
-use serde::{Deserialize, Serialize};
+use crate::pdh::{PdhCounter, PdhQuery};
+use serde::Serialize;
+use std::collections::HashMap;
 use windows::Win32::NetworkManagement::IpHelper::{
     GetTcpTable, GetUdpTable, MIB_TCPTABLE, MIB_UDPTABLE,
 };
@@ -23,23 +24,6 @@ pub struct NetExt {
     pub retrans_ps: f64,
     pub retrans_pct: f64,
     pub adapters: Vec<AdapterUtil>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_Tcpip_TCPv4")]
-#[serde(rename_all = "PascalCase")]
-struct TcpV4 {
-    segments_retransmitted_persec: u32,
-    segments_sent_persec: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_Tcpip_NetworkInterface")]
-#[serde(rename_all = "PascalCase")]
-struct NetInterface {
-    name: String,
-    current_bandwidth: u64,
-    bytes_total_persec: u64,
 }
 
 /// TCP 状态常量（MIB_TCP_STATE）
@@ -90,52 +74,77 @@ pub fn udp_endpoint_count() -> u32 {
     }
 }
 
-/// 网络深化：TCP/UDP 连接统计、重传率、各网卡链路利用率
-pub fn sample(hub: &WmiHub) -> NetExt {
-    let (tcp_established, tcp_time_wait, tcp_listen) = tcp_state_counts();
-    let udp_endpoints = udp_endpoint_count();
-    let (retrans_ps, retrans_pct) = hub
-        .query::<TcpV4>()
-        .and_then(|rows| rows.into_iter().next())
-        .map(|t| {
-            let sent = t.segments_sent_persec as f64;
-            let re = t.segments_retransmitted_persec as f64;
-            (re, if sent > 0.0 { re / sent * 100.0 } else { 0.0 })
-        })
-        .unwrap_or((0.0, 0.0));
-    let mut adapters: Vec<AdapterUtil> = hub
-        .query::<NetInterface>()
-        .map(|rows| {
-            rows.into_iter()
-                .filter(|a| {
-                    a.current_bandwidth > 0
-                        && !a.name.contains("Loopback")
-                        && !a.name.contains("isatap")
-                        && !a.name.contains("Npcap")
-                })
-                .map(|a| AdapterUtil {
-                    util_pct: a.bytes_total_persec as f64 * 8.0 / a.current_bandwidth as f64
-                        * 100.0,
-                    name: a.name,
-                    link_bps: a.current_bandwidth,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    adapters.sort_by(|a, b| {
-        b.util_pct
-            .partial_cmp(&a.util_pct)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    adapters.truncate(4);
-    NetExt {
-        tcp_established,
-        tcp_time_wait,
-        tcp_listen,
-        udp_endpoints,
-        retrans_ps,
-        retrans_pct,
-        adapters,
+/// 网络深化：TCP/UDP 连接统计（IpHelper）、重传率与网卡利用率（PDH）
+pub struct NetExtSampler {
+    c_retrans: Option<PdhCounter>,
+    c_sent: Option<PdhCounter>,
+    c_bandwidth: Option<PdhCounter>,
+    c_bytes_total: Option<PdhCounter>,
+}
+
+impl NetExtSampler {
+    pub fn new(pdh: &PdhQuery) -> Self {
+        NetExtSampler {
+            c_retrans: pdh.add("\\TCPv4\\Segments Retransmitted/sec"),
+            c_sent: pdh.add("\\TCPv4\\Segments Sent/sec"),
+            c_bandwidth: pdh.add("\\Network Interface(*)\\Current Bandwidth"),
+            c_bytes_total: pdh.add("\\Network Interface(*)\\Bytes Total/sec"),
+        }
+    }
+
+    pub fn sample(&self) -> NetExt {
+        let (tcp_established, tcp_time_wait, tcp_listen) = tcp_state_counts();
+        let udp_endpoints = udp_endpoint_count();
+        let v = |c: &Option<PdhCounter>| c.as_ref().and_then(|c| c.value()).unwrap_or(0.0);
+        let retrans_ps = v(&self.c_retrans);
+        let sent = v(&self.c_sent);
+        let retrans_pct = if sent > 0.0 {
+            retrans_ps / sent * 100.0
+        } else {
+            0.0
+        };
+
+        // 两个通配数组按实例名合并
+        let mut bw: HashMap<String, f64> = HashMap::new();
+        if let Some(c) = &self.c_bandwidth {
+            for (name, val) in c.array() {
+                bw.insert(name, val);
+            }
+        }
+        let mut adapters: Vec<AdapterUtil> = Vec::new();
+        if let Some(c) = &self.c_bytes_total {
+            for (name, bytes) in c.array() {
+                if name.contains("Loopback") || name.contains("isatap") || name.contains("Npcap")
+                {
+                    continue;
+                }
+                let Some(&link) = bw.get(&name) else { continue };
+                if link <= 0.0 {
+                    continue;
+                }
+                adapters.push(AdapterUtil {
+                    util_pct: bytes * 8.0 / link * 100.0,
+                    name,
+                    link_bps: link as u64,
+                });
+            }
+        }
+        adapters.sort_by(|a, b| {
+            b.util_pct
+                .partial_cmp(&a.util_pct)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        adapters.truncate(4);
+
+        NetExt {
+            tcp_established,
+            tcp_time_wait,
+            tcp_listen,
+            udp_endpoints,
+            retrans_ps,
+            retrans_pct,
+            adapters,
+        }
     }
 }
 
@@ -155,8 +164,12 @@ mod tests {
 
     #[test]
     fn net_ext_samples_adapters() {
-        let hub = WmiHub::new();
-        let n = sample(&hub);
+        let pdh = PdhQuery::new().unwrap();
+        let s = NetExtSampler::new(&pdh);
+        pdh.collect();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        pdh.collect();
+        let n = s.sample();
         println!(
             "adapters: {:?}",
             n.adapters

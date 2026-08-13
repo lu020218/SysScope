@@ -1,3 +1,5 @@
+use crate::pdh::{PdhCounter, PdhQuery};
+use crate::wmi_hub::WmiHub;
 use nvml_wrapper::bitmasks::device::ThrottleReasons;
 use nvml_wrapper::enum_wrappers::device::{
     Clock, PcieUtilCounter, TemperatureSensor, TemperatureThreshold,
@@ -5,7 +7,6 @@ use nvml_wrapper::enum_wrappers::device::{
 use nvml_wrapper::Nvml;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use wmi::{COMLibrary, WMIConnection};
 
 #[derive(Serialize, Clone)]
 pub struct GpuSnapshot {
@@ -53,17 +54,16 @@ pub struct NvmlGpu {
 
 const PCIE_SAMPLE_EVERY: u32 = 5;
 
-/// GPU 采集后端：优先 NVML（NVIDIA），失败则回退 WMI GPU 性能计数器，
+/// GPU 采集后端：优先 NVML（NVIDIA），失败则回退 PDH GPU 性能计数器，
 /// 两者皆不可用时降级为无 GPU 数据
 pub enum GpuBackend {
     Nvml(Box<NvmlGpu>),
-    Wmi(WmiGpu),
+    Pdh(PdhGpu),
     None,
 }
 
 impl GpuBackend {
-    /// 必须在采样线程内调用（WMI 依赖线程 COM 环境）
-    pub fn init() -> Self {
+    pub fn init(hub: &WmiHub, pdh: &PdhQuery) -> Self {
         match Nvml::init() {
             Ok(nvml) if nvml.device_count().map(|c| c > 0).unwrap_or(false) => {
                 GpuBackend::Nvml(Box::new(NvmlGpu {
@@ -72,9 +72,9 @@ impl GpuBackend {
                     pcie_cache: None,
                 }))
             }
-            _ => match WmiGpu::init() {
-                Ok(w) => GpuBackend::Wmi(w),
-                Err(_) => GpuBackend::None,
+            _ => match PdhGpu::init(hub, pdh) {
+                Some(p) => GpuBackend::Pdh(p),
+                None => GpuBackend::None,
             },
         }
     }
@@ -82,7 +82,7 @@ impl GpuBackend {
     pub fn backend_name(&self) -> &'static str {
         match self {
             GpuBackend::Nvml(_) => "NVML",
-            GpuBackend::Wmi(_) => "WMI",
+            GpuBackend::Pdh(_) => "PDH",
             GpuBackend::None => "none",
         }
     }
@@ -90,7 +90,7 @@ impl GpuBackend {
     pub fn sample(&mut self) -> Vec<GpuSnapshot> {
         match self {
             GpuBackend::Nvml(state) => sample_nvml(state),
-            GpuBackend::Wmi(w) => w.sample().unwrap_or_default(),
+            GpuBackend::Pdh(p) => p.sample(),
             GpuBackend::None => Vec::new(),
         }
     }
@@ -156,25 +156,7 @@ fn sample_nvml(state: &mut NvmlGpu) -> Vec<GpuSnapshot> {
         .collect()
 }
 
-// ---------- WMI 兜底路径 ----------
-
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine")]
-#[serde(rename_all = "PascalCase")]
-struct GpuEngine {
-    name: String,
-    utilization_percentage: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory")]
-#[serde(rename_all = "PascalCase")]
-struct GpuAdapterMemory {
-    name: String,
-    dedicated_usage: u64,
-    /// 核显没有专用显存，占用记在共享内存字段里
-    shared_usage: u64,
-}
+// ---------- PDH 兜底路径（AMD/Intel 核显） ----------
 
 #[derive(Deserialize)]
 #[serde(rename = "Win32_VideoController")]
@@ -183,8 +165,10 @@ struct VideoController {
     name: String,
 }
 
-pub struct WmiGpu {
-    conn: WMIConnection,
+pub struct PdhGpu {
+    c_engine: Option<PdhCounter>,
+    c_dedicated: Option<PdhCounter>,
+    c_shared: Option<PdhCounter>,
     adapter_names: Vec<String>,
 }
 
@@ -203,42 +187,52 @@ fn parse_engtype(instance: &str) -> &str {
         .unwrap_or("unknown")
 }
 
-impl WmiGpu {
-    pub fn init() -> Result<Self, wmi::WMIError> {
-        let com = COMLibrary::new()?;
-        let conn = WMIConnection::new(com)?;
-        let adapter_names = conn
+impl PdhGpu {
+    pub fn init(hub: &WmiHub, pdh: &PdhQuery) -> Option<Self> {
+        let adapter_names: Vec<String> = hub
             .query::<VideoController>()
             .map(|v| v.into_iter().map(|c| c.name).collect())
             .unwrap_or_default();
-        Ok(WmiGpu {
-            conn,
+        let c_engine = pdh.add("\\GPU Engine(*)\\Utilization Percentage");
+        // 计数器对象都不存在（老系统）→ 整个兜底不可用
+        c_engine.as_ref()?;
+        Some(PdhGpu {
+            c_engine,
+            c_dedicated: pdh.add("\\GPU Adapter Memory(*)\\Dedicated Usage"),
+            c_shared: pdh.add("\\GPU Adapter Memory(*)\\Shared Usage"),
             adapter_names,
         })
     }
 
-    pub fn sample(&self) -> Result<Vec<GpuSnapshot>, wmi::WMIError> {
-        let engines: Vec<GpuEngine> = self.conn.query()?;
-        let memory: Vec<GpuAdapterMemory> = self.conn.query()?;
-
+    pub fn sample(&self) -> Vec<GpuSnapshot> {
         // 每 LUID 按引擎类型汇总占用率，取各类型中的最大值作为该适配器占用率
-        let mut util_by_luid: HashMap<String, HashMap<String, u64>> = HashMap::new();
-        for e in &engines {
-            if let Some(luid) = parse_luid(&e.name) {
-                *util_by_luid
-                    .entry(luid.to_string())
-                    .or_default()
-                    .entry(parse_engtype(&e.name).to_string())
-                    .or_default() += e.utilization_percentage;
+        let mut util_by_luid: HashMap<String, HashMap<String, f64>> = HashMap::new();
+        if let Some(c) = &self.c_engine {
+            for (name, v) in c.array() {
+                if let Some(luid) = parse_luid(&name) {
+                    *util_by_luid
+                        .entry(luid.to_string())
+                        .or_default()
+                        .entry(parse_engtype(&name).to_string())
+                        .or_default() += v;
+                }
             }
         }
 
         let mut dedicated_by_luid: HashMap<String, u64> = HashMap::new();
         let mut shared_by_luid: HashMap<String, u64> = HashMap::new();
-        for m in &memory {
-            if let Some(luid) = parse_luid(&m.name) {
-                *dedicated_by_luid.entry(luid.to_string()).or_default() += m.dedicated_usage;
-                *shared_by_luid.entry(luid.to_string()).or_default() += m.shared_usage;
+        if let Some(c) = &self.c_dedicated {
+            for (name, v) in c.array() {
+                if let Some(luid) = parse_luid(&name) {
+                    *dedicated_by_luid.entry(luid.to_string()).or_default() += v as u64;
+                }
+            }
+        }
+        if let Some(c) = &self.c_shared {
+            for (name, v) in c.array() {
+                if let Some(luid) = parse_luid(&name) {
+                    *shared_by_luid.entry(luid.to_string()).or_default() += v as u64;
+                }
             }
         }
 
@@ -249,17 +243,15 @@ impl WmiGpu {
         // 时隐时现，前端每秒整卡重建拖垮低端机。规则：能映射到
         // Win32_VideoController 名字的适配器恒保留；映射不到的（如
         // Microsoft 基本渲染驱动的幽灵 LUID）恒剔除——两者跨采样稳定
-        Ok(luids
+        luids
             .into_iter()
             .enumerate()
             .filter(|(i, _)| *i < self.adapter_names.len())
             .map(|(i, luid)| {
                 let util = util_by_luid[luid]
                     .values()
-                    .max()
-                    .copied()
-                    .unwrap_or(0)
-                    .min(100) as f32;
+                    .fold(0.0f64, |a, &b| a.max(b))
+                    .min(100.0) as f32;
                 let dedicated = dedicated_by_luid.get(luid).copied().unwrap_or(0);
                 let shared = shared_by_luid.get(luid).copied().unwrap_or(0);
                 GpuSnapshot {
@@ -292,7 +284,7 @@ impl WmiGpu {
                     vram_temp_c: None,
                 }
             })
-            .collect())
+            .collect()
     }
 }
 
@@ -308,9 +300,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "hw: 需要 GPU 硬件（NVML 或 WMI GPU 计数器）"]
+    #[ignore = "hw: 需要 GPU 硬件（NVML 或 PDH GPU 计数器）"]
     fn backend_initializes_and_samples() {
-        let mut backend = GpuBackend::init();
+        let hub = WmiHub::new();
+        let pdh = PdhQuery::new().unwrap();
+        let mut backend = GpuBackend::init(&hub, &pdh);
+        pdh.collect();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        pdh.collect();
         let gpus = backend.sample();
         println!("GPU backend: {}, {} device(s)", backend.backend_name(), gpus.len());
         for g in &gpus {
@@ -339,16 +336,22 @@ mod tests {
         }
     }
 
-    /// WMI 兜底路径独立验证（即使 NVML 可用也要保证 WMI 查询可跑通）
+    /// PDH 兜底路径独立验证（即使 NVML 可用也要保证兜底可跑通）
     #[test]
-    #[ignore = "hw: 需要 GPU 硬件与 WMI GPU 计数器"]
-    fn wmi_fallback_queries_work() {
-        let w = WmiGpu::init().expect("WMI init failed");
-        let gpus = w.sample().expect("WMI sample failed");
-        println!("WMI path: {} adapter(s)", gpus.len());
+    #[ignore = "hw: 需要 GPU 硬件与 GPU 性能计数器"]
+    fn pdh_fallback_queries_work() {
+        let hub = WmiHub::new();
+        let pdh = PdhQuery::new().unwrap();
+        let p = PdhGpu::init(&hub, &pdh).expect("PDH GPU init failed");
+        pdh.collect();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        pdh.collect();
+        let gpus = p.sample();
+        println!("PDH path: {} adapter(s)", gpus.len());
         for g in &gpus {
             println!("  {} util={}% vram_used={}", g.name, g.util_pct, g.vram_used);
             assert!((0.0..=100.0).contains(&g.util_pct));
         }
+        assert!(!gpus.is_empty(), "expected at least one adapter");
     }
 }

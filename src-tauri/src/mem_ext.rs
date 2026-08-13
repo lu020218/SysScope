@@ -1,3 +1,4 @@
+use crate::pdh::{PdhCounter, PdhQuery};
 use crate::wmi_hub::WmiHub;
 use serde::{Deserialize, Serialize};
 
@@ -20,20 +21,6 @@ pub struct MemExt {
 }
 
 #[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_PerfOS_Memory")]
-#[serde(rename_all = "PascalCase")]
-struct PerfMemory {
-    committed_bytes: u64,
-    commit_limit: u64,
-    pages_input_persec: u64,
-    page_faults_persec: u64,
-    standby_cache_core_bytes: u64,
-    standby_cache_normal_priority_bytes: u64,
-    standby_cache_reserve_bytes: u64,
-    modified_page_list_bytes: u64,
-}
-
-#[derive(Deserialize)]
 #[serde(rename = "Win32_PhysicalMemory")]
 #[serde(rename_all = "PascalCase")]
 struct PhysicalMemory {
@@ -41,14 +28,22 @@ struct PhysicalMemory {
     speed: Option<u32>,
 }
 
-/// 内存深化采集：提交/页错误/缓存页列表（动态）+ 内存硬件（静态缓存）
+/// 内存深化采集：提交/页错误/缓存页列表（PDH 动态）+ 内存硬件（WMI 一次性静态）
 pub struct MemExtSampler {
     mem_speed_mts: u32,
     mem_modules: u32,
+    c_commit: Option<PdhCounter>,
+    c_limit: Option<PdhCounter>,
+    c_pages_in: Option<PdhCounter>,
+    c_faults: Option<PdhCounter>,
+    c_standby_core: Option<PdhCounter>,
+    c_standby_norm: Option<PdhCounter>,
+    c_standby_res: Option<PdhCounter>,
+    c_modified: Option<PdhCounter>,
 }
 
 impl MemExtSampler {
-    pub fn new(hub: &WmiHub) -> Self {
+    pub fn new(hub: &WmiHub, pdh: &PdhQuery) -> Self {
         let (mem_speed_mts, mem_modules) = hub
             .query::<PhysicalMemory>()
             .map(|rows| {
@@ -60,33 +55,39 @@ impl MemExtSampler {
                 (speed, rows.len() as u32)
             })
             .unwrap_or((0, 0));
+        let m = |c: &str| pdh.add(&format!("\\Memory\\{c}"));
         MemExtSampler {
             mem_speed_mts,
             mem_modules,
+            c_commit: m("Committed Bytes"),
+            c_limit: m("Commit Limit"),
+            c_pages_in: m("Pages Input/sec"),
+            c_faults: m("Page Faults/sec"),
+            c_standby_core: m("Standby Cache Core Bytes"),
+            c_standby_norm: m("Standby Cache Normal Priority Bytes"),
+            c_standby_res: m("Standby Cache Reserve Bytes"),
+            c_modified: m("Modified Page List Bytes"),
         }
     }
 
-    /// WMI 不可用时返回默认零值
-    pub fn sample(&self, hub: &WmiHub) -> MemExt {
+    pub fn sample(&self) -> MemExt {
         // 双通道理论带宽：MT/s × 64bit × 2 通道 ÷ 8（多于 2 条仍按双通道估算）
         let channels = self.mem_modules.clamp(1, 2) as f64;
         let theo = self.mem_speed_mts as f64 * 8.0 * channels / 1000.0;
-        hub.query::<PerfMemory>()
-            .and_then(|rows| rows.into_iter().next())
-            .map(|m| MemExt {
-                commit_used: m.committed_bytes,
-                commit_limit: m.commit_limit,
-                hard_faults_ps: m.pages_input_persec as f64,
-                page_faults_ps: m.page_faults_persec as f64,
-                standby_bytes: m.standby_cache_core_bytes
-                    + m.standby_cache_normal_priority_bytes
-                    + m.standby_cache_reserve_bytes,
-                modified_bytes: m.modified_page_list_bytes,
-                mem_speed_mts: self.mem_speed_mts,
-                mem_modules: self.mem_modules,
-                theo_bandwidth_gbps: theo,
-            })
-            .unwrap_or_default()
+        let v = |c: &Option<PdhCounter>| c.as_ref().and_then(|c| c.value()).unwrap_or(0.0);
+        MemExt {
+            commit_used: v(&self.c_commit) as u64,
+            commit_limit: v(&self.c_limit) as u64,
+            hard_faults_ps: v(&self.c_pages_in),
+            page_faults_ps: v(&self.c_faults),
+            standby_bytes: (v(&self.c_standby_core)
+                + v(&self.c_standby_norm)
+                + v(&self.c_standby_res)) as u64,
+            modified_bytes: v(&self.c_modified) as u64,
+            mem_speed_mts: self.mem_speed_mts,
+            mem_modules: self.mem_modules,
+            theo_bandwidth_gbps: theo,
+        }
     }
 }
 
@@ -97,8 +98,12 @@ mod tests {
     #[test]
     fn mem_ext_is_plausible() {
         let hub = WmiHub::new();
-        let s = MemExtSampler::new(&hub);
-        let m = s.sample(&hub);
+        let pdh = PdhQuery::new().unwrap();
+        let s = MemExtSampler::new(&hub, &pdh);
+        pdh.collect();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        pdh.collect();
+        let m = s.sample();
         println!(
             "commit {}/{} GB, hard faults {}/s, cached {} GB, {} MT/s x {}",
             m.commit_used >> 30,

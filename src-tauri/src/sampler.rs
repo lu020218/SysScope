@@ -4,8 +4,9 @@ use crate::fps::{FpsCollector, FpsSnapshot};
 use crate::gpu::{GpuBackend, GpuSnapshot};
 use crate::gpu_proc::GpuProcSampler;
 use crate::mem_ext::{MemExt, MemExtSampler};
-use crate::net_ext::{self, NetExt};
+use crate::net_ext::{NetExt, NetExtSampler};
 use crate::netproc::{NetProcCollector, ProcNetStat};
+use crate::pdh::PdhQuery;
 use crate::ping::{PingProber, PingStats};
 use crate::recorder::{Recorder, RecorderCtl};
 use crate::sensors::{SensorBridge, StorageTemp};
@@ -160,8 +161,8 @@ pub struct SamplerCtx {
     pub gpu: GpuBackend,
     pub fps: FpsCollector,
     pub networks: Networks,
-    /// WMI 查询入口，各 WMI 依赖的采集器共用
-    pub hub: WmiHub,
+    /// PDH 性能计数器查询：全部计数器挂于其下，每拍 collect 一次
+    pub pdh: PdhQuery,
     pub disk: DiskSampler,
     pub mem_ext: MemExtSampler,
     pub cpu_perf: CpuPerfSampler,
@@ -169,14 +170,19 @@ pub struct SamplerCtx {
     pub sensors: Option<SensorBridge>,
     pub ping: PingProber,
     pub netproc: NetProcCollector,
+    pub net_ext: NetExtSampler,
     /// 会话内 CPU 峰值功耗
     pub power_peak: f32,
 }
 
 impl SamplerCtx {
-    /// 必须在采样线程内构造（GPU/磁盘依赖线程 COM 环境）
+    /// 必须在采样线程内构造（WMI 静态查询依赖线程 COM 环境）
     pub fn init() -> Self {
-        let gpu = GpuBackend::init();
+        // WMI 仅用于一次性静态信息（基准频率/内存条/显卡名）；
+        // 逐拍动态计数全部走 PDH
+        let hub = WmiHub::new();
+        let pdh = PdhQuery::new().expect("PDH query unavailable");
+        let gpu = GpuBackend::init(&hub, &pdh);
         println!("[sysscope] GPU backend: {}", gpu.backend_name());
         let fps = FpsCollector::init();
         let sensors = SensorBridge::init();
@@ -186,22 +192,27 @@ impl SamplerCtx {
         let mut sys = System::new_with_specifics(refresh_kind());
         // 首次刷新仅用于建立 CPU 使用率基线，数据不发送
         sys.refresh_specifics(refresh_kind());
-        let hub = WmiHub::new();
-        let mem_ext = MemExtSampler::new(&hub);
-        let cpu_perf = CpuPerfSampler::new(&hub);
+        let mem_ext = MemExtSampler::new(&hub, &pdh);
+        let cpu_perf = CpuPerfSampler::new(&hub, &pdh);
+        let disk = DiskSampler::new(&pdh);
+        let gpu_proc = GpuProcSampler::new(&pdh);
+        let net_ext = NetExtSampler::new(&pdh);
+        // 首次 collect 建立速率类计数器的差分基线
+        pdh.collect();
         SamplerCtx {
             sys,
             gpu,
             fps,
             networks: Networks::new_with_refreshed_list(),
-            hub,
-            disk: DiskSampler::new(),
+            pdh,
+            disk,
             mem_ext,
             cpu_perf,
-            gpu_proc: GpuProcSampler::new(),
+            gpu_proc,
             sensors,
             ping: PingProber::spawn(),
             netproc: NetProcCollector::init(),
+            net_ext,
             power_peak: 0.0,
         }
     }
@@ -331,6 +342,8 @@ fn sample_top_procs(
 }
 
 pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
+    // 每拍一次 collect：刷新挂在查询下的全部 PDH 计数器（~1-5ms）
+    ctx.pdh.collect();
     ctx.sys.refresh_specifics(refresh_kind());
     let fps_snapshot = ctx.fps.sample(&mut ctx.sys);
     let sensor_data = ctx
@@ -338,7 +351,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
         .as_ref()
         .map(|s| s.read())
         .unwrap_or_default();
-    let gpu_procs = ctx.gpu_proc.sample(&ctx.hub).clone();
+    let gpu_procs = ctx.gpu_proc.sample().clone();
     let tops = sample_top_procs(&mut ctx.sys, elapsed_secs, &gpu_procs);
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -347,7 +360,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
     if let Some(pw) = sensor_data.cpu_power {
         ctx.power_peak = ctx.power_peak.max(pw);
     }
-    let perf = ctx.cpu_perf.sample(&ctx.hub);
+    let perf = ctx.cpu_perf.sample();
     let base_mhz = ctx.cpu_perf.base_mhz();
     let effective_mhz = perf
         .as_ref()
@@ -377,7 +390,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
             swap_total: ctx.sys.total_swap(),
             swap_used: ctx.sys.used_swap(),
             compression: tops.compression,
-            ext: ctx.mem_ext.sample(&ctx.hub),
+            ext: ctx.mem_ext.sample(),
         },
         gpus: {
             let mut gpus = ctx.gpu.sample();
@@ -393,10 +406,10 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
         net: {
             let mut net = sample_net(&mut ctx.networks, elapsed_secs);
             net.ping = ctx.ping.stats();
-            net.ext = net_ext::sample(&ctx.hub);
+            net.ext = ctx.net_ext.sample();
             net
         },
-        storage: ctx.disk.sample(&ctx.hub),
+        storage: ctx.disk.sample(),
         storage_temps: sensor_data.storage,
         top_net: ctx.netproc.sample(&ctx.sys, elapsed_secs),
         top_cpu: tops.top_cpu,
@@ -551,12 +564,14 @@ mod tests {
 
         println!("=== 初始化耗时（采样线程串行执行的顺序） ===");
         let t_init = Instant::now();
-        let mut gpu = timed!("GpuBackend::init", GpuBackend::init());
+        let hub = timed!("WmiHub::new", WmiHub::new());
+        let pdh = timed!("PdhQuery::new", PdhQuery::new().unwrap());
+        let mut gpu = timed!("GpuBackend::init", GpuBackend::init(&hub, &pdh));
         let fps = timed!("FpsCollector::init", FpsCollector::init());
         let sensors = timed!("SensorBridge::init", SensorBridge::init());
-        let hub = timed!("WmiHub::new", WmiHub::new());
-        let mem_ext_s = timed!("MemExtSampler::new", MemExtSampler::new(&hub));
-        let cpu_perf_s = timed!("CpuPerfSampler::new", CpuPerfSampler::new(&hub));
+        let mem_ext_s = timed!("MemExtSampler::new", MemExtSampler::new(&hub, &pdh));
+        let cpu_perf_s = timed!("CpuPerfSampler::new", CpuPerfSampler::new(&hub, &pdh));
+        let net_ext_s = timed!("NetExtSampler::new", NetExtSampler::new(&pdh));
         let netproc = timed!("NetProcCollector::init", NetProcCollector::init());
         let _ping = timed!("PingProber::spawn", PingProber::spawn());
         let mut sys = timed!("System init+refresh", {
@@ -565,8 +580,9 @@ mod tests {
             s
         });
         let mut networks = timed!("Networks::new", Networks::new_with_refreshed_list());
-        let mut disk_s = timed!("DiskSampler::new", DiskSampler::new());
-        let mut gpu_proc = GpuProcSampler::new();
+        let mut disk_s = timed!("DiskSampler::new", DiskSampler::new(&pdh));
+        let mut gpu_proc = GpuProcSampler::new(&pdh);
+        timed!("pdh.collect (基线)", pdh.collect());
         println!("{:<30} {:>8.1} ms", "== INIT TOTAL ==", t_init.elapsed().as_secs_f64() * 1000.0);
 
         std::thread::sleep(Duration::from_millis(800));
@@ -588,19 +604,20 @@ mod tests {
                 println!("=== 单拍成本分解（第 2 拍，含差分基线） ===");
             }
             let t_all = Instant::now();
+            t2!("pdh.collect (全计数器)", pdh.collect());
             t2!("sys.refresh(cpu+mem)", ctx_refresh(&mut sys));
             t2!("fps.sample", { fps.sample(&mut sys); });
             t2!("sensors.read (LHM)", { sensors.as_ref().map(|s| s.read()); });
             t2!("gpu.sample (NVML)", { gpu.sample(); });
-            t2!("gpu_proc.sample (WMI, 2s缓存)", { gpu_proc.sample(&hub); });
+            t2!("gpu_proc.sample (PDH)", { gpu_proc.sample(); });
             t2!("top procs (进程表刷新)", {
                 sample_top_procs(&mut sys, 1.0, &std::collections::HashMap::new());
             });
             t2!("net rates (sysinfo)", { sample_net(&mut networks, 1.0); });
-            t2!("net_ext (WMI+连接表)", { net_ext::sample(&hub); });
-            t2!("disk.sample (WMI×2)", { disk_s.sample(&hub); });
-            t2!("mem_ext.sample (WMI)", { mem_ext_s.sample(&hub); });
-            t2!("cpu_perf.sample (WMI)", { cpu_perf_s.sample(&hub); });
+            t2!("net_ext (PDH+连接表)", { net_ext_s.sample(); });
+            t2!("disk.sample (PDH)", { disk_s.sample(); });
+            t2!("mem_ext.sample (PDH)", { mem_ext_s.sample(); });
+            t2!("cpu_perf.sample (PDH)", { cpu_perf_s.sample(); });
             t2!("netproc.sample (ETW汇总)", { netproc.sample(&sys, 1.0); });
             if !quiet {
                 println!("{:<30} {:>8.1} ms", "== TICK TOTAL ==", t_all.elapsed().as_secs_f64() * 1000.0);

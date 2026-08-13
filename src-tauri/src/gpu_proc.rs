@@ -1,23 +1,5 @@
-use crate::wmi_hub::WmiHub;
-use serde::Deserialize;
+use crate::pdh::{PdhCounter, PdhQuery};
 use std::collections::HashMap;
-use std::time::Instant;
-
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine")]
-#[serde(rename_all = "PascalCase")]
-struct GpuEnginePid {
-    name: String,
-    utilization_percentage: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename = "Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory")]
-#[serde(rename_all = "PascalCase")]
-struct GpuProcessMemory {
-    name: String,
-    dedicated_usage: u64,
-}
 
 /// 从 "pid_1234_luid_..." 实例名提取 PID
 fn parse_pid(instance: &str) -> Option<u32> {
@@ -29,48 +11,43 @@ fn parse_pid(instance: &str) -> Option<u32> {
         .ok()
 }
 
-/// 每进程 GPU 占用/显存：实例多、查询较重，2 秒采一次并缓存
+/// 每进程 GPU 占用/显存（PDH per-PID 实例计数器，成本已足够低，逐拍采样）
 pub struct GpuProcSampler {
+    c_engine: Option<PdhCounter>,
+    c_mem: Option<PdhCounter>,
     cache: HashMap<u32, (f32, u64)>,
-    sampled_at: Option<Instant>,
 }
 
 impl GpuProcSampler {
-    pub fn new() -> Self {
+    pub fn new(pdh: &PdhQuery) -> Self {
         GpuProcSampler {
+            c_engine: pdh.add("\\GPU Engine(*)\\Utilization Percentage"),
+            c_mem: pdh.add("\\GPU Process Memory(*)\\Dedicated Usage"),
             cache: HashMap::new(),
-            sampled_at: None,
         }
     }
 
     /// pid -> (占用%, 显存字节)
-    pub fn sample(&mut self, hub: &WmiHub) -> &HashMap<u32, (f32, u64)> {
-        let fresh = self
-            .sampled_at
-            .map(|t| t.elapsed().as_secs_f64() < 2.0)
-            .unwrap_or(false);
-        if !fresh {
-            self.sampled_at = Some(Instant::now());
-            let mut map: HashMap<u32, (f32, u64)> = HashMap::new();
-            if let Some(rows) = hub.query::<GpuEnginePid>() {
-                for r in rows {
-                    if let Some(pid) = parse_pid(&r.name) {
-                        map.entry(pid).or_default().0 += r.utilization_percentage as f32;
-                    }
+    pub fn sample(&mut self) -> &HashMap<u32, (f32, u64)> {
+        let mut map: HashMap<u32, (f32, u64)> = HashMap::new();
+        if let Some(c) = &self.c_engine {
+            for (name, v) in c.array() {
+                if let Some(pid) = parse_pid(&name) {
+                    map.entry(pid).or_default().0 += v as f32;
                 }
             }
-            if let Some(rows) = hub.query::<GpuProcessMemory>() {
-                for r in rows {
-                    if let Some(pid) = parse_pid(&r.name) {
-                        map.entry(pid).or_default().1 += r.dedicated_usage;
-                    }
-                }
-            }
-            for v in map.values_mut() {
-                v.0 = v.0.min(100.0);
-            }
-            self.cache = map;
         }
+        if let Some(c) = &self.c_mem {
+            for (name, v) in c.array() {
+                if let Some(pid) = parse_pid(&name) {
+                    map.entry(pid).or_default().1 += v as u64;
+                }
+            }
+        }
+        for v in map.values_mut() {
+            v.0 = v.0.min(100.0);
+        }
+        self.cache = map;
         &self.cache
     }
 }
@@ -87,9 +64,12 @@ mod tests {
 
     #[test]
     fn per_process_gpu_returns_bounded_values() {
-        let hub = WmiHub::new();
-        let mut s = GpuProcSampler::new();
-        let map = s.sample(&hub);
+        let pdh = PdhQuery::new().unwrap();
+        let mut s = GpuProcSampler::new(&pdh);
+        pdh.collect();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        pdh.collect();
+        let map = s.sample();
         println!("{} process(es) with gpu activity", map.len());
         for (pid, (util, vram)) in map.iter().take(5) {
             println!("  pid {pid}: {util}% vram={vram}");
