@@ -21,8 +21,17 @@ interface GpuCard {
 }
 
 let gpuCards: GpuCard[] = [];
+/** 重建去抖：候选签名需连续出现 REBUILD_STABLE_TICKS 次才真正重建，
+ *  防止适配器列表瞬时抖动导致每秒整卡重建（DOM/canvas 重排拖垮低端机） */
+const REBUILD_STABLE_TICKS = 3;
+let currentSig = "";
+let pendingSig: string | null = null;
+let pendingCount = 0;
 
 function buildGpuCards(gpus: GpuSnapshot[]) {
+  for (const c of gpuCards) {
+    c.chart.destroy();
+  }
   document.querySelectorAll(".gpu-card").forEach((el) => el.remove());
   gpuCards = [];
   buffers.dropPrefix("g");
@@ -117,15 +126,31 @@ export function bufferValues(s: Snapshot, values: Record<string, number>) {
 }
 
 export function update(s: Snapshot, th: Thresholds, ts: number[], start: number) {
-  const rebuilt =
-    s.gpus.length !== gpuCards.length ||
-    s.gpus.some((g, i) => gpuCards[i]?.name !== g.name);
-  if (rebuilt) {
-    buildGpuCards(s.gpus);
+  const sig = s.gpus.map((g) => g.name).join("|");
+  let rebuilt = false;
+  if (sig !== currentSig) {
+    if (sig === pendingSig) {
+      pendingCount += 1;
+    } else {
+      pendingSig = sig;
+      pendingCount = 1;
+    }
+    // 首帧（尚无卡片）立即建；其后需要连续稳定才重建
+    if (gpuCards.length === 0 || pendingCount >= REBUILD_STABLE_TICKS) {
+      buildGpuCards(s.gpus);
+      currentSig = sig;
+      pendingSig = null;
+      pendingCount = 0;
+      rebuilt = true;
+    }
+  } else {
+    pendingSig = null;
+    pendingCount = 0;
   }
 
   s.gpus.forEach((g, i) => {
     const c = gpuCards[i];
+    if (!c) return; // 去抖期间快照与卡片可能短暂不齐，跳过越界项
     c.utilEl.textContent = `${g.util_pct.toFixed(0)}%`;
     setWarn(c.utilEl, g.util_pct >= th.gpu);
     c.vramEl.textContent =

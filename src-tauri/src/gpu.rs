@@ -172,6 +172,8 @@ struct GpuEngine {
 struct GpuAdapterMemory {
     name: String,
     dedicated_usage: u64,
+    /// 核显没有专用显存，占用记在共享内存字段里
+    shared_usage: u64,
 }
 
 #[derive(Deserialize)]
@@ -231,24 +233,26 @@ impl WmiGpu {
             }
         }
 
-        let mut vram_by_luid: HashMap<String, u64> = HashMap::new();
+        let mut dedicated_by_luid: HashMap<String, u64> = HashMap::new();
+        let mut shared_by_luid: HashMap<String, u64> = HashMap::new();
         for m in &memory {
             if let Some(luid) = parse_luid(&m.name) {
-                *vram_by_luid.entry(luid.to_string()).or_default() += m.dedicated_usage;
+                *dedicated_by_luid.entry(luid.to_string()).or_default() += m.dedicated_usage;
+                *shared_by_luid.entry(luid.to_string()).or_default() += m.shared_usage;
             }
         }
 
         let mut luids: Vec<&String> = util_by_luid.keys().collect();
         luids.sort();
+        // 存在性必须用稳定属性判定，绝不能用瞬时活动（util/vram>0）：
+        // 核显无专用显存、空闲时 util=0，用活动过滤会导致适配器在快照中
+        // 时隐时现，前端每秒整卡重建拖垮低端机。规则：能映射到
+        // Win32_VideoController 名字的适配器恒保留；映射不到的（如
+        // Microsoft 基本渲染驱动的幽灵 LUID）恒剔除——两者跨采样稳定
         Ok(luids
             .into_iter()
             .enumerate()
-            .filter(|(_, luid)| {
-                // 过滤全零的虚拟适配器（如 Microsoft 基本渲染驱动）
-                let util: u64 = util_by_luid[*luid].values().copied().max().unwrap_or(0);
-                let vram = vram_by_luid.get(*luid).copied().unwrap_or(0);
-                util > 0 || vram > 0
-            })
+            .filter(|(i, _)| *i < self.adapter_names.len())
             .map(|(i, luid)| {
                 let util = util_by_luid[luid]
                     .values()
@@ -256,6 +260,8 @@ impl WmiGpu {
                     .copied()
                     .unwrap_or(0)
                     .min(100) as f32;
+                let dedicated = dedicated_by_luid.get(luid).copied().unwrap_or(0);
+                let shared = shared_by_luid.get(luid).copied().unwrap_or(0);
                 GpuSnapshot {
                     // LUID 与 VideoController 顺序无从对应，按序号取名字（尽力而为）
                     name: self
@@ -264,7 +270,8 @@ impl WmiGpu {
                         .cloned()
                         .unwrap_or_else(|| format!("GPU {i}")),
                     util_pct: util,
-                    vram_used: vram_by_luid.get(luid).copied().unwrap_or(0),
+                    // 独显用专用显存；核显专用为 0，回退共享内存占用
+                    vram_used: if dedicated > 0 { dedicated } else { shared },
                     vram_total: 0,
                     temp_c: None,
                     power_w: None,
