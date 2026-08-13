@@ -22,15 +22,32 @@ import type { Snapshot, StaticInfo } from "./types";
 let windowSec = 60;
 
 async function main() {
-  initAllTabs();
-  procdetail.init();
-  settings.init();
-  await sessions.init();
+  // 各模块独立初始化：任一模块失败不得中断后续（尤其是 metrics 监听），
+  // 否则整个面板会停在无数据状态
+  const step = async (name: string, fn: () => void | Promise<void>) => {
+    try {
+      await fn();
+    } catch (e) {
+      console.error(`init ${name} failed:`, e);
+    }
+  };
+  await step("tabs", initAllTabs);
+  await step("procdetail", procdetail.init);
+  await step("settings", settings.init);
+  await step("sessions", sessions.init);
 
-  // 静态信息 + CPU 拓扑
+  // 静态信息 + CPU 拓扑（后端 state 未就绪时重试几轮）
   let info: StaticInfo | null = null;
   try {
-    info = await invoke<StaticInfo>("get_static_info");
+    for (let i = 0; i < 10 && !info; i++) {
+      try {
+        info = await invoke<StaticInfo>("get_static_info");
+      } catch (e) {
+        if (i === 9) throw e;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    if (!info) throw new Error("get_static_info unavailable");
     const cores = info.physical_cores
       ? `${info.physical_cores}C/${info.logical_cores}T`
       : `${info.logical_cores}T`;

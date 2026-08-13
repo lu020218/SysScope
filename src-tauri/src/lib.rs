@@ -196,8 +196,6 @@ pub fn run() {
                 .app_data_dir()
                 .expect("app data dir unavailable")
                 .join("sysscope.db");
-            recorder::prune_old_sessions(&db_path);
-
             // 报告导出目录：优先用户文档目录（易访问、非 EFS 加密），
             // 取不到时回退到 DB 同级的 reports/
             let reports_dir = app
@@ -210,15 +208,23 @@ pub fn run() {
                         .unwrap_or(std::path::Path::new("."))
                         .join("reports")
                 });
+
+            // 状态注册必须先于任何耗时操作：Tauri 在 setup 之前就已创建窗口
+            // 并开始加载前端，前端可能在 setup 仍在跑时就发起命令调用。
+            // 若此时 state 未注册，命令会以 "state not managed" 失败，
+            // 前端初始化链随之中断（面板停留在"加载系统信息…"）。
+            app.manage(ctl.clone());
+            app.manage(recorder::DbPath(db_path.clone()));
+            app.manage(recorder::ReportsDir(reports_dir.clone()));
+
+            recorder::prune_old_sessions(&db_path);
+
             // 一次性迁移旧 AppData/reports（加密目录）下的历史报告
             if let Some(old) = db_path.parent().map(|p| p.join("reports")) {
                 recorder::migrate_legacy_reports(&old, &reports_dir);
             }
             println!("[sysscope] reports dir: {}", reports_dir.display());
 
-            app.manage(ctl.clone());
-            app.manage(recorder::DbPath(db_path.clone()));
-            app.manage(recorder::ReportsDir(reports_dir));
             sampler::spawn(app.handle().clone(), ctl, db_path);
 
             setup_tray(app)?;

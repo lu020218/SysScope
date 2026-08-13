@@ -25,7 +25,13 @@ function renderRecordBtn(samples?: number) {
 
 async function syncRecStatus() {
   const seq = clickSeq;
-  const st = await invoke<RecStatus>("recording_status");
+  let st: RecStatus;
+  try {
+    st = await invoke<RecStatus>("recording_status");
+  } catch {
+    // 启动早期后端 state 可能尚未注册；轮询会自动重试，静默跳过本轮
+    return;
+  }
   if (seq !== clickSeq) return; // 期间发生过点击，丢弃陈旧结果
   if (pendingTarget != null) {
     // 后端已达成期望状态或等待超时（3s 兜底）前，忽略中间态
