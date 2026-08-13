@@ -180,6 +180,11 @@ impl SamplerCtx {
     pub fn init() -> Self {
         // WMI 仅用于一次性静态信息（基准频率/内存条/显卡名）；
         // 逐拍动态计数全部走 PDH
+        // 孤儿 ETW 会话回收与本次初始化无依赖，后台做，不占启动路径
+        crate::etw_util::spawn_cleanup(&["SysScopeFps", "SysScopeNetProc"]);
+        // 两个 ETW 会话的建立各需数百毫秒且互不依赖，并行初始化
+        let netproc_handle = std::thread::spawn(NetProcCollector::init);
+
         let hub = WmiHub::new();
         let pdh = PdhQuery::new().expect("PDH query unavailable");
         let gpu = GpuBackend::init(&hub, &pdh);
@@ -211,7 +216,10 @@ impl SamplerCtx {
             gpu_proc,
             sensors,
             ping: PingProber::spawn(),
-            netproc: NetProcCollector::init(),
+            netproc: netproc_handle.join().unwrap_or_else(|_| {
+                eprintln!("[sysscope] netproc init thread panicked");
+                NetProcCollector::init()
+            }),
             net_ext,
             power_peak: 0.0,
         }

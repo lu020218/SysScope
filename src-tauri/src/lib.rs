@@ -92,7 +92,37 @@ fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        set_webview_memory_level(app, false);
     }
+}
+
+/// 主窗口隐藏到托盘时把 WebView2 降到低内存态（释放渲染缓存等，
+/// 常驻内存显著下降），恢复显示时切回正常。失败静默忽略——
+/// 该接口需较新的 WebView2 运行时，缺失时仅仅是没有优化而已。
+fn set_webview_memory_level(app: &AppHandle, low: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    };
+    // 必须用 webview2-com 同版本（0.61）的 Interface trait；项目主 windows
+    // 依赖是 0.58，两套 COM 类型不通用
+    use windows_core::Interface;
+
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    let level = if low {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+    } else {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+    };
+    let _ = w.with_webview(move |webview| unsafe {
+        if let Ok(core) = webview.controller().CoreWebView2() {
+            if let Ok(v19) = core.cast::<ICoreWebView2_19>() {
+                let _ = v19.SetMemoryUsageTargetLevel(level);
+            }
+        }
+    });
 }
 
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -198,6 +228,7 @@ pub fn run() {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.hide();
                 }
+                set_webview_memory_level(app.handle(), true);
             }
             Ok(())
         })
@@ -207,6 +238,8 @@ pub fn run() {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
+                    // 隐藏到托盘后释放 WebView2 渲染内存
+                    set_webview_memory_level(window.app_handle(), true);
                 }
             }
         })

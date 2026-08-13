@@ -43,7 +43,7 @@ pub struct NetProcCollector {
 
 impl NetProcCollector {
     pub fn init() -> Self {
-        crate::etw_util::cleanup_stale_sessions(SESSION_PREFIX);
+        // 孤儿会话清理由 SamplerCtx 启动时统一异步执行
 
         let state: Arc<Mutex<Accum>> = Arc::default();
         let s = state.clone();

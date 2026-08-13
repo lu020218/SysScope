@@ -9,6 +9,13 @@ edition = "2021"
 name = "sysscope_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[profile.release]
+# 跨 crate 内联与死代码消除，显著缩减体积并提升采样热路径性能。
+# panic 保持 unwind：采样线程的 catch_unwind 看门狗依赖它自愈
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -24,6 +31,10 @@ wmi = "0.14"
 ferrisetw = "1"
 libloading = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
+webview2-com = "0.38"
+# 与 webview2-com 0.38 内部同版本，用于 COM 接口 cast（windows 0.58 的
+# Interface trait 与之不通用）
+windows-core = "0.61"
 chrono = "0.4"
 windows = { version = "0.58", features = [
     "Win32_Foundation",

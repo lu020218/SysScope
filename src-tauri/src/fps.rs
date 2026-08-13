@@ -136,7 +136,8 @@ fn on_present(state: &Arc<Mutex<FpsState>>, pid: u32, raw_ts: i64) {
 impl FpsCollector {
     pub fn init() -> Self {
         // 清理属主已退出的残留会话；本进程会话名带 PID 后缀避免多进程冲突
-        crate::etw_util::cleanup_stale_sessions(SESSION_PREFIX);
+        // 孤儿会话清理由 SamplerCtx 启动时统一异步执行（见 etw_util::spawn_cleanup），
+        // 本进程会话名带 PID 后缀不会与之冲突
 
         let state: Arc<Mutex<FpsState>> = Arc::default();
 
