@@ -530,6 +530,89 @@ mod tests {
         );
     }
 
+    /// 性能基准：各采集器初始化耗时 + 单拍成本分解（手动运行，建议 --release）
+    #[test]
+    #[ignore = "perf: 手动性能基准，cargo test --release -- --ignored perf_breakdown --nocapture"]
+    fn perf_breakdown() {
+        use crate::cpu_perf::CpuPerfSampler;
+        use crate::gpu_proc::GpuProcSampler;
+        use crate::mem_ext::MemExtSampler;
+        use crate::netproc::NetProcCollector;
+        use crate::wmi_hub::WmiHub;
+
+        macro_rules! timed {
+            ($name:expr, $e:expr) => {{
+                let t = Instant::now();
+                let r = $e;
+                println!("{:<30} {:>8.1} ms", $name, t.elapsed().as_secs_f64() * 1000.0);
+                r
+            }};
+        }
+
+        println!("=== 初始化耗时（采样线程串行执行的顺序） ===");
+        let t_init = Instant::now();
+        let mut gpu = timed!("GpuBackend::init", GpuBackend::init());
+        let fps = timed!("FpsCollector::init", FpsCollector::init());
+        let sensors = timed!("SensorBridge::init", SensorBridge::init());
+        let hub = timed!("WmiHub::new", WmiHub::new());
+        let mem_ext_s = timed!("MemExtSampler::new", MemExtSampler::new(&hub));
+        let cpu_perf_s = timed!("CpuPerfSampler::new", CpuPerfSampler::new(&hub));
+        let netproc = timed!("NetProcCollector::init", NetProcCollector::init());
+        let _ping = timed!("PingProber::spawn", PingProber::spawn());
+        let mut sys = timed!("System init+refresh", {
+            let mut s = System::new_with_specifics(refresh_kind());
+            s.refresh_specifics(refresh_kind());
+            s
+        });
+        let mut networks = timed!("Networks::new", Networks::new_with_refreshed_list());
+        let mut disk_s = timed!("DiskSampler::new", DiskSampler::new());
+        let mut gpu_proc = GpuProcSampler::new();
+        println!("{:<30} {:>8.1} ms", "== INIT TOTAL ==", t_init.elapsed().as_secs_f64() * 1000.0);
+
+        std::thread::sleep(Duration::from_millis(800));
+
+        // 第 0 轮静默预热（建立差分基线），第 1 轮打印
+        for round in 0..2u32 {
+            let quiet = round == 0;
+            macro_rules! t2 {
+                ($n:expr, $e:expr) => {{
+                    let t = Instant::now();
+                    let r = $e;
+                    if !quiet {
+                        println!("{:<30} {:>8.1} ms", $n, t.elapsed().as_secs_f64() * 1000.0);
+                    }
+                    r
+                }};
+            }
+            if !quiet {
+                println!("=== 单拍成本分解（第 2 拍，含差分基线） ===");
+            }
+            let t_all = Instant::now();
+            t2!("sys.refresh(cpu+mem)", ctx_refresh(&mut sys));
+            t2!("fps.sample", { fps.sample(&mut sys); });
+            t2!("sensors.read (LHM)", { sensors.as_ref().map(|s| s.read()); });
+            t2!("gpu.sample (NVML)", { gpu.sample(); });
+            t2!("gpu_proc.sample (WMI, 2s缓存)", { gpu_proc.sample(&hub); });
+            t2!("top procs (进程表刷新)", {
+                sample_top_procs(&mut sys, 1.0, &std::collections::HashMap::new());
+            });
+            t2!("net rates (sysinfo)", { sample_net(&mut networks, 1.0); });
+            t2!("net_ext (WMI+连接表)", { net_ext::sample(&hub); });
+            t2!("disk.sample (WMI×2)", { disk_s.sample(&hub); });
+            t2!("mem_ext.sample (WMI)", { mem_ext_s.sample(&hub); });
+            t2!("cpu_perf.sample (WMI)", { cpu_perf_s.sample(&hub); });
+            t2!("netproc.sample (ETW汇总)", { netproc.sample(&sys, 1.0); });
+            if !quiet {
+                println!("{:<30} {:>8.1} ms", "== TICK TOTAL ==", t_all.elapsed().as_secs_f64() * 1000.0);
+            }
+            std::thread::sleep(Duration::from_millis(1000));
+        }
+
+        fn ctx_refresh(sys: &mut System) {
+            sys.refresh_specifics(refresh_kind());
+        }
+    }
+
     #[test]
     fn static_info_is_populated() {
         let info = get_static_info();
