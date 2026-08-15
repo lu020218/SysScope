@@ -14,7 +14,7 @@ Windows 桌面系统状态实时监控工具（Rust + Tauri）。
 - [x] FPS 悬浮窗（OSD）：无边框置顶小窗展示 FPS + CPU/GPU/内存简略值，可拖动、可开关
 - [x] CPU 温度：LibreHardwareMonitor 经 NativeAOT 编译为原生 DLL，Rust FFI 进程内调用（需管理员权限）
 - [x] M4 记录与报告：会话记录、SQLite 落盘、HTML/CSV/JSON/Markdown 报告导出
-- [x] M5 打磨：托盘常驻（关闭到托盘）、开机自启（静默启动）、置顶/紧凑模式、
+- [x] M5 打磨：托盘常驻（关闭到托盘）、`--minimized` 静默启动、置顶/紧凑模式、
       设置面板（告警阈值配置）、WMI 虚拟适配器过滤
 - [x] 专业化一批：磁盘 I/O（活动率/读写速率/队列/分区空间/盘温）、CPU 功耗与热节流标注、
       GPU 频率/风扇/功耗墙、FPS 0.1% Low + P95/P99 + 卡顿计数、CPU/内存 Top-5 进程；
@@ -65,6 +65,16 @@ cd src-tauri && cargo test -- --include-ignored
 
 前者为纯逻辑层（CI 可跑）；后者附加 5 个标注 `#[ignore = "hw: …"]` 的
 硬件实测用例（需要管理员 / NVIDIA GPU / 活动桌面）。
+
+发布前冒烟测试（构建后运行，验证程序**真的在工作**而非仅进程存活）：
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
+```
+
+默认以资源管理器方式启动（等价于用户双击，最易暴露启动时序问题），
+检查进程存活、窗口与 WebView2 子进程、UI 线程响应、界面已渲染内容、
+采集线程活动；截图输出到 `%TEMP%\sysscope_smoke.png` 供人工复核。
 
 ## 结构
 

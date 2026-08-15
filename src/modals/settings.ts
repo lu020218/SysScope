@@ -22,11 +22,9 @@ function fillSettings() {
 export function init() {
   const modal = $("settings-modal");
 
-  $("settings-btn").addEventListener("click", async () => {
+  $("settings-btn").addEventListener("click", () => {
     fillSettings();
     modal.classList.remove("hidden");
-    ($("autostart-chk") as HTMLInputElement).checked =
-      await invoke<boolean>("get_autostart");
   });
   $("settings-close").addEventListener("click", () => modal.classList.add("hidden"));
   modal.addEventListener("click", (e) => {
@@ -42,15 +40,6 @@ export function init() {
   $("th-reset").addEventListener("click", () => {
     saveThresholds({ ...DEFAULTS });
     fillSettings();
-  });
-
-  $("autostart-chk").addEventListener("change", async (e) => {
-    const chk = e.target as HTMLInputElement;
-    try {
-      chk.checked = await invoke<boolean>("set_autostart", { enable: chk.checked });
-    } catch {
-      chk.checked = !chk.checked;
-    }
   });
 
   // 延迟探测目标（持久化并在启动时恢复）

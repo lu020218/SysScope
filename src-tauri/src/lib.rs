@@ -21,7 +21,6 @@ use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_autostart::ManagerExt;
 
 /// 切换 FPS 悬浮窗显隐，返回切换后的可见状态
 #[tauri::command]
@@ -69,22 +68,6 @@ fn set_main_on_top(app: AppHandle, on: bool) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_always_on_top(on);
     }
-}
-
-#[tauri::command]
-fn set_autostart(app: AppHandle, enable: bool) -> Result<bool, String> {
-    let m = app.autolaunch();
-    if enable {
-        m.enable().map_err(|e| e.to_string())?;
-    } else {
-        m.disable().map_err(|e| e.to_string())?;
-    }
-    m.is_enabled().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_autostart(app: AppHandle) -> bool {
-    app.autolaunch().is_enabled().unwrap_or(false)
 }
 
 fn show_main(app: &AppHandle) {
@@ -166,18 +149,12 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
         }))
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ))
         .invoke_handler(tauri::generate_handler![
             sampler::get_static_info,
             sampler::set_sample_interval,
             toggle_overlay,
             window_control,
             set_main_on_top,
-            set_autostart,
-            get_autostart,
             ping::set_ping_target,
             procdetail::process_detail,
             recorder::start_recording,
@@ -229,7 +206,7 @@ pub fn run() {
 
             setup_tray(app)?;
 
-            // 开机自启（--minimized）时静默启动到托盘
+            // --minimized：静默启动到托盘（供任务计划程序等外部方式调用）
             if std::env::args().any(|a| a == "--minimized") {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.hide();
