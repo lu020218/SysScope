@@ -20,6 +20,7 @@ sensor-bridge/obj
 preview-report.html
 
 # Editor directories and files
+.claude
 .vscode/*
 !.vscode/extensions.json
 .idea

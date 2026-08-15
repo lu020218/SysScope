@@ -36,6 +36,11 @@ jobs:
       - name: Type-check frontend
         run: npx tsc --noEmit
 
+      # tsc catches a missing translation in en.ts (it is Record<Keys, string>);
+      # this catches the other half -- data-i18n / t() keys that no pack defines.
+      - name: Check i18n keys
+        run: node scripts/check-i18n.mjs
+
       - name: Build frontend
         run: npm run build
 

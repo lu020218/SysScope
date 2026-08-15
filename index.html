@@ -10,27 +10,28 @@
       <header class="topbar" data-tauri-drag-region>
         <div class="brand" data-tauri-drag-region>
           <span class="brand-name" data-tauri-drag-region>SysScope</span>
-          <span class="brand-sub" id="static-info" data-tauri-drag-region>加载系统信息…</span>
+          <span class="brand-sub" id="static-info" data-i18n="app.loading" data-tauri-drag-region>加载系统信息…</span>
         </div>
         <div class="winctrl">
-          <button id="ontop-toggle" class="win-settings" title="窗口置顶"><span class="pin-glyph">&#xE840;</span></button>
-          <button id="settings-btn" class="win-settings" title="设置">&#xE713;</button>
-          <button id="win-min" title="最小化">&#xE921;</button>
-          <button id="win-max" title="最大化 / 还原">&#xE922;</button>
-          <button id="win-close" class="win-close" title="关闭到托盘">&#xE8BB;</button>
+          <button id="ontop-toggle" class="win-settings" data-i18n-title="win.onTop" title="窗口置顶"><span class="pin-glyph">&#xE840;</span></button>
+          <button id="settings-btn" class="win-settings" data-i18n-title="win.settings" title="设置">&#xE713;</button>
+          <button id="win-min" data-i18n-title="win.min" title="最小化">&#xE921;</button>
+          <button id="win-max" data-i18n-title="win.max" title="最大化 / 还原">&#xE922;</button>
+          <button id="win-close" class="win-close" data-i18n-title="win.close" title="关闭到托盘">&#xE8BB;</button>
         </div>
       </header>
 
       <div class="toolbar">
-        <button class="toggle-btn" id="record-btn" title="开始/停止记录监控会话">● 记录</button>
-        <button class="toggle-btn" id="sessions-btn" title="查看会话并导出报告">报告</button>
-        <button class="toggle-btn active" id="overlay-toggle" title="显示/隐藏 FPS 悬浮窗">悬浮窗</button>
+        <!-- 记录按钮的文本由 sessions.ts 按录制状态渲染，此处只翻译 title -->
+        <button class="toggle-btn" id="record-btn" data-i18n-title="toolbar.record.title" title="开始/停止记录监控会话">● 记录</button>
+        <button class="toggle-btn" id="sessions-btn" data-i18n="toolbar.sessions" data-i18n-title="toolbar.sessions.title" title="查看会话并导出报告">报告</button>
+        <button class="toggle-btn active" id="overlay-toggle" data-i18n="toolbar.overlay" data-i18n-title="toolbar.overlay.title" title="显示/隐藏 FPS 悬浮窗">悬浮窗</button>
         <div class="seg" id="window-seg">
           <button data-win="60" class="active">60s</button>
           <button data-win="300">5min</button>
           <button data-win="1800">30min</button>
         </div>
-        <div class="seg" id="interval-seg" title="采样间隔">
+        <div class="seg" id="interval-seg" data-i18n-title="toolbar.interval.title" title="采样间隔">
           <button data-ms="500">0.5s</button>
           <button data-ms="1000" class="active">1s</button>
           <button data-ms="2000">2s</button>
@@ -38,7 +39,7 @@
         </div>
       </div>
 
-      <div id="crash-warn" class="crash-warn hidden">采集线程发生异常，已自动重启，数据可能有短暂缺口</div>
+      <div id="crash-warn" class="crash-warn hidden" data-i18n="app.crashWarn">采集线程发生异常，已自动重启，数据可能有短暂缺口</div>
 
       <main class="grid">
         <section class="card" id="cpu-card">
@@ -47,27 +48,27 @@
             <div class="stats">
               <div class="stat">
                 <span class="stat-value" id="cpu-total">--%</span>
-                <span class="stat-label">总占用</span>
+                <span class="stat-label" data-i18n="cpu.stat.total">总占用</span>
               </div>
               <div class="stat">
                 <span class="stat-value" id="cpu-temp">--</span>
-                <span class="stat-label">温度</span>
+                <span class="stat-label" data-i18n="cpu.stat.temp">温度</span>
               </div>
               <div class="stat">
                 <span class="stat-value" id="cpu-power">--</span>
-                <span class="stat-label">功耗</span>
+                <span class="stat-label" data-i18n="cpu.stat.power">功耗</span>
               </div>
               <div class="stat">
                 <span class="stat-value" id="cpu-freq">-- MHz</span>
-                <span class="stat-label">频率</span>
+                <span class="stat-label" data-i18n="cpu.stat.freq">频率</span>
               </div>
             </div>
           </div>
           <div class="tabs" id="cpu-tabs">
-            <button data-pane="overview" class="active">概览</button>
-            <button data-pane="cores">核心</button>
-            <button data-pane="freq">频率</button>
-            <button data-pane="power">电源</button>
+            <button data-pane="overview" class="active" data-i18n="tab.overview">概览</button>
+            <button data-pane="cores" data-i18n="cpu.tab.cores">核心</button>
+            <button data-pane="freq" data-i18n="cpu.tab.freq">频率</button>
+            <button data-pane="power" data-i18n="cpu.tab.power">电源</button>
           </div>
           <div class="tab-pane" id="cpu-pane-overview" data-pane="overview">
             <div class="chart" id="cpu-chart"></div>
@@ -77,33 +78,33 @@
           </div>
           <div class="tab-pane hidden" id="cpu-pane-freq" data-pane="freq">
             <div class="substats freq-stats">
-              <span>当前 <b id="fq-cur">--</b></span>
-              <span>有效 <b id="fq-eff">--</b></span>
-              <span>基准 <b id="fq-base">--</b></span>
-              <span>会话峰值 <b id="fq-max">--</b></span>
-              <span>均值 <b id="fq-avg">--</b></span>
-              <span class="boost-badge hidden" id="fq-boost">睿频中</span>
+              <span><span data-i18n="cpu.freq.cur">当前</span> <b id="fq-cur">--</b></span>
+              <span><span data-i18n="cpu.freq.eff">有效</span> <b id="fq-eff">--</b></span>
+              <span><span data-i18n="cpu.freq.base">基准</span> <b id="fq-base">--</b></span>
+              <span><span data-i18n="cpu.freq.max">会话峰值</span> <b id="fq-max">--</b></span>
+              <span><span data-i18n="cpu.freq.avg">均值</span> <b id="fq-avg">--</b></span>
+              <span class="boost-badge hidden" id="fq-boost" data-i18n="cpu.freq.boost">睿频中</span>
             </div>
             <div class="clock-grid" id="clock-grid"></div>
           </div>
           <div class="tab-pane hidden" id="cpu-pane-power" data-pane="power">
             <div class="kv-rows">
-              <div class="kv"><span>封装功耗</span><b id="pw-cur">--</b></div>
-              <div class="kv"><span>会话峰值功耗</span><b id="pw-peak">--</b></div>
-              <div class="kv"><span>核心电压</span><b id="pw-volt">--</b></div>
-              <div class="kv"><span>睿频状态</span><b id="pw-boost">--</b></div>
+              <div class="kv"><span data-i18n="cpu.power.package">封装功耗</span><b id="pw-cur">--</b></div>
+              <div class="kv"><span data-i18n="cpu.power.peak">会话峰值功耗</span><b id="pw-peak">--</b></div>
+              <div class="kv"><span data-i18n="cpu.power.voltage">核心电压</span><b id="pw-volt">--</b></div>
+              <div class="kv"><span data-i18n="cpu.power.boost">睿频状态</span><b id="pw-boost">--</b></div>
               <div class="kv cstate">
-                <span>C1 驻留</span>
+                <span data-i18n="cpu.power.c1">C1 驻留</span>
                 <div class="cs-bar"><div class="cs-fill" id="cs1"></div></div>
                 <b id="cs1v">--</b>
               </div>
               <div class="kv cstate">
-                <span>C2 驻留</span>
+                <span data-i18n="cpu.power.c2">C2 驻留</span>
                 <div class="cs-bar"><div class="cs-fill" id="cs2"></div></div>
                 <b id="cs2v">--</b>
               </div>
               <div class="kv cstate">
-                <span>C3 驻留</span>
+                <span data-i18n="cpu.power.c3">C3 驻留</span>
                 <div class="cs-bar"><div class="cs-fill" id="cs3"></div></div>
                 <b id="cs3v">--</b>
               </div>
@@ -113,70 +114,70 @@
 
         <section class="card" id="mem-card">
           <div class="card-head">
-            <h2>内存</h2>
+            <h2 data-i18n="card.mem">内存</h2>
             <div class="stats">
               <div class="stat">
                 <span class="stat-value" id="mem-pct">--%</span>
-                <span class="stat-label">占用率</span>
+                <span class="stat-label" data-i18n="mem.stat.pct">占用率</span>
               </div>
               <div class="stat">
                 <span class="stat-value" id="mem-used">-- / --</span>
-                <span class="stat-label">已用 / 总量</span>
+                <span class="stat-label" data-i18n="mem.stat.used">已用 / 总量</span>
               </div>
             </div>
           </div>
           <div class="tabs" id="mem-tabs">
-            <button data-pane="ov" class="active">概览</button>
-            <button data-pane="detail">详情</button>
+            <button data-pane="ov" class="active" data-i18n="tab.overview">概览</button>
+            <button data-pane="detail" data-i18n="tab.detail">详情</button>
           </div>
           <div class="tab-pane" id="mem-pane-ov" data-pane="ov">
             <div class="chart" id="mem-chart"></div>
             <div class="substats">
-              <span>可用 <b id="mem-avail">--</b></span>
-              <span>提交 <b id="mem-commit">--</b></span>
-              <span>硬页错误 <b id="mem-faults">--</b></span>
+              <span><span data-i18n="mem.sub.avail">可用</span> <b id="mem-avail">--</b></span>
+              <span><span data-i18n="mem.sub.commit">提交</span> <b id="mem-commit">--</b></span>
+              <span><span data-i18n="mem.sub.faults">硬页错误</span> <b id="mem-faults">--</b></span>
             </div>
           </div>
           <div class="tab-pane hidden" id="mem-pane-detail" data-pane="detail">
             <div class="kv-rows kv-2col">
-              <div class="kv"><span>已缓存</span><b id="mm-cached">--</b></div>
-              <div class="kv"><span>备用 / 已修改</span><b id="mm-standby">--</b></div>
-              <div class="kv"><span>页错误（总 / 硬）</span><b id="mm-pf">--</b></div>
-              <div class="kv"><span>内存压缩</span><b id="mm-comp">--</b></div>
-              <div class="kv"><span>页面文件</span><b id="mm-swap">--</b></div>
-              <div class="kv"><span>提交占比</span><b id="mm-commitpct">--</b></div>
-              <div class="kv"><span>内存频率</span><b id="mm-speed">--</b></div>
-              <div class="kv"><span>理论带宽</span><b id="mm-bw">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.cached">已缓存</span><b id="mm-cached">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.standby">备用 / 已修改</span><b id="mm-standby">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.pf">页错误（总 / 硬）</span><b id="mm-pf">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.compression">内存压缩</span><b id="mm-comp">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.swap">页面文件</span><b id="mm-swap">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.commitPct">提交占比</span><b id="mm-commitpct">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.speed">内存频率</span><b id="mm-speed">--</b></div>
+              <div class="kv"><span data-i18n="mem.detail.bandwidth">理论带宽</span><b id="mm-bw">--</b></div>
             </div>
           </div>
         </section>
 
         <section class="card" id="net-card">
           <div class="card-head">
-            <h2>网络</h2>
+            <h2 data-i18n="card.net">网络</h2>
             <div class="stats">
               <div class="stat">
                 <span class="stat-value" id="net-down">--</span>
-                <span class="stat-label">↓ 下载</span>
+                <span class="stat-label" data-i18n="net.stat.down">↓ 下载</span>
               </div>
               <div class="stat">
                 <span class="stat-value" id="net-up">--</span>
-                <span class="stat-label">↑ 上传</span>
+                <span class="stat-label" data-i18n="net.stat.up">↑ 上传</span>
               </div>
             </div>
           </div>
           <div class="tabs" id="net-tabs">
-            <button data-pane="ov" class="active">概览</button>
-            <button data-pane="detail">详情</button>
+            <button data-pane="ov" class="active" data-i18n="tab.overview">概览</button>
+            <button data-pane="detail" data-i18n="tab.detail">详情</button>
           </div>
           <div class="tab-pane" id="net-pane-ov" data-pane="ov">
             <div class="chart" id="net-chart"></div>
             <div class="substats">
-              <span class="legend legend-down">下载</span>
-              <span class="legend legend-up">上传</span>
-              <span>接口 <b id="net-iface">--</b></span>
-              <span>延迟 <b id="net-ping">--</b></span>
-              <span>丢包 <b id="net-loss">--</b></span>
+              <span class="legend legend-down" data-i18n="net.legend.down">下载</span>
+              <span class="legend legend-up" data-i18n="net.legend.up">上传</span>
+              <span><span data-i18n="net.sub.iface">接口</span> <b id="net-iface">--</b></span>
+              <span><span data-i18n="net.sub.ping">延迟</span> <b id="net-ping">--</b></span>
+              <span><span data-i18n="net.sub.loss">丢包</span> <b id="net-loss">--</b></span>
             </div>
           </div>
           <div class="tab-pane hidden" id="net-pane-detail" data-pane="detail">
@@ -186,31 +187,31 @@
 
         <section class="card" id="disk-card">
           <div class="card-head">
-            <h2>磁盘</h2>
+            <h2 data-i18n="card.disk">磁盘</h2>
             <div class="stats">
               <div class="stat">
                 <span class="stat-value" id="disk-active">--%</span>
-                <span class="stat-label">活动</span>
+                <span class="stat-label" data-i18n="disk.stat.active">活动</span>
               </div>
               <div class="stat">
                 <span class="stat-value" id="disk-read">--</span>
-                <span class="stat-label">读取</span>
+                <span class="stat-label" data-i18n="disk.read">读取</span>
               </div>
               <div class="stat">
                 <span class="stat-value" id="disk-write">--</span>
-                <span class="stat-label">写入</span>
+                <span class="stat-label" data-i18n="disk.write">写入</span>
               </div>
             </div>
           </div>
           <div class="tabs" id="disk-tabs">
-            <button data-pane="ov" class="active">概览</button>
-            <button data-pane="detail">详情</button>
+            <button data-pane="ov" class="active" data-i18n="tab.overview">概览</button>
+            <button data-pane="detail" data-i18n="tab.detail">详情</button>
           </div>
           <div class="tab-pane" id="disk-pane-ov" data-pane="ov">
             <div class="chart" id="disk-chart"></div>
             <div class="substats" id="disk-info">
-              <span class="legend legend-read">读取</span>
-              <span class="legend legend-write">写入</span>
+              <span class="legend legend-read" data-i18n="disk.read">读取</span>
+              <span class="legend legend-write" data-i18n="disk.write">写入</span>
               <span id="disk-vols">--</span>
               <span id="disk-temps"></span>
             </div>
@@ -222,7 +223,7 @@
 
         <section class="card" id="proc-card">
           <div class="card-head">
-            <h2>进程 Top 5</h2>
+            <h2 data-i18n="card.procs">进程 Top 5</h2>
           </div>
           <div class="proc-cols">
             <div class="proc-col">
@@ -230,19 +231,19 @@
               <div id="top-cpu" class="proc-list"></div>
             </div>
             <div class="proc-col">
-              <h4>内存</h4>
+              <h4 data-i18n="procs.col.mem">内存</h4>
               <div id="top-mem" class="proc-list"></div>
             </div>
             <div class="proc-col">
-              <h4>网络</h4>
+              <h4 data-i18n="procs.col.net">网络</h4>
               <div id="top-net" class="proc-list"></div>
             </div>
             <div class="proc-col">
-              <h4>磁盘</h4>
+              <h4 data-i18n="procs.col.disk">磁盘</h4>
               <div id="top-disk" class="proc-list"></div>
             </div>
             <div class="proc-col">
-              <h4>GPU · 显存</h4>
+              <h4 data-i18n="procs.col.gpu">GPU · 显存</h4>
               <div id="top-gpu" class="proc-list"></div>
             </div>
           </div>
@@ -253,7 +254,7 @@
         <div class="modal-box settings-box">
           <div class="modal-head">
             <h3 data-i18n="settings.title">设置</h3>
-            <button id="settings-close" data-i18n-title="settings.close" title="关闭">×</button>
+            <button id="settings-close" data-i18n-title="common.close" title="关闭">×</button>
           </div>
           <label class="setting-row"><span data-i18n="settings.language">界面语言</span><select id="lang-select">
             <option value="zh-CN">简体中文</option>
@@ -278,18 +279,19 @@
       <div id="proc-modal" class="modal hidden">
         <div class="modal-box settings-box">
           <div class="modal-head">
-            <h3 id="pd-title">进程详情</h3>
-            <button id="pd-close" title="关闭">×</button>
+            <!-- 打开时由 procdetail.ts 覆写为「进程名 · PID」 -->
+            <h3 id="pd-title" data-i18n="pd.title">进程详情</h3>
+            <button id="pd-close" data-i18n-title="common.close" title="关闭">×</button>
           </div>
           <div class="kv-rows">
-            <div class="kv"><span>累计 CPU 时间</span><b id="pd-cputime">--</b></div>
-            <div class="kv"><span>线程数</span><b id="pd-threads">--</b></div>
-            <div class="kv"><span>句柄数</span><b id="pd-handles">--</b></div>
-            <div class="kv"><span>工作集 / 峰值</span><b id="pd-ws">--</b></div>
-            <div class="kv"><span>私有提交</span><b id="pd-priv">--</b></div>
-            <div class="kv"><span>累计页错误</span><b id="pd-pf">--</b></div>
-            <div class="kv"><span>优先级</span><b id="pd-prio">--</b></div>
-            <div class="kv"><span>CPU 亲和性</span><div class="affinity-grid" id="pd-affinity"></div></div>
+            <div class="kv"><span data-i18n="pd.cputime">累计 CPU 时间</span><b id="pd-cputime">--</b></div>
+            <div class="kv"><span data-i18n="pd.threads">线程数</span><b id="pd-threads">--</b></div>
+            <div class="kv"><span data-i18n="pd.handles">句柄数</span><b id="pd-handles">--</b></div>
+            <div class="kv"><span data-i18n="pd.ws">工作集 / 峰值</span><b id="pd-ws">--</b></div>
+            <div class="kv"><span data-i18n="pd.priv">私有提交</span><b id="pd-priv">--</b></div>
+            <div class="kv"><span data-i18n="pd.pf">累计页错误</span><b id="pd-pf">--</b></div>
+            <div class="kv"><span data-i18n="pd.prio">优先级</span><b id="pd-prio">--</b></div>
+            <div class="kv"><span data-i18n="pd.affinity">CPU 亲和性</span><div class="affinity-grid" id="pd-affinity"></div></div>
           </div>
         </div>
       </div>
@@ -297,10 +299,10 @@
       <div id="sessions-modal" class="modal hidden">
         <div class="modal-box">
           <div class="modal-head">
-            <h3>监控会话</h3>
+            <h3 data-i18n="sessions.title">监控会话</h3>
             <div class="modal-head-actions">
-              <button id="open-reports" class="toggle-btn" title="打开报告目录">📁 报告目录</button>
-              <button id="modal-close" title="关闭">×</button>
+              <button id="open-reports" class="toggle-btn" data-i18n="sessions.openDir" data-i18n-title="sessions.openDir.title" title="打开报告目录">📁 报告目录</button>
+              <button id="modal-close" data-i18n-title="common.close" title="关闭">×</button>
             </div>
           </div>
           <div id="export-toast" class="toast hidden"></div>
