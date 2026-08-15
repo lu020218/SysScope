@@ -88,7 +88,7 @@ cd sensor-bridge && dotnet publish -c Release -r win-x64
 ### 测试
 
 ```bash
-cd src-tauri && cargo test                        # 24 项纯逻辑测试，CI 可跑
+cd src-tauri && cargo test                        # 25 项纯逻辑测试，CI 可跑
 cd src-tauri && cargo test -- --include-ignored   # 追加 8 项需真实硬件的测试
 ```
 

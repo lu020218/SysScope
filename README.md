@@ -95,7 +95,7 @@ cannot find `vswhere`, run it from a VS Developer Prompt or add
 ### Tests
 
 ```bash
-cd src-tauri && cargo test                        # 24 pure-logic tests, CI-safe
+cd src-tauri && cargo test                        # 25 pure-logic tests, CI-safe
 cd src-tauri && cargo test -- --include-ignored   # + 8 tests needing real hardware
 ```
 

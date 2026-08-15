@@ -127,7 +127,7 @@ makes exported files unopenable from Explorer even though writing them succeeds.
 
 ## Testing
 
-- `cargo test` — 24 pure-logic tests (parsing, statistics, schema, escaping)
+- `cargo test` — 25 pure-logic tests (parsing, statistics, schema, escaping)
 - `cargo test -- --include-ignored` — plus 8 that need real hardware
 - `scripts/smoke-test.ps1` — post-build check that the app actually works:
   process survives, WebView2 children exist, UI thread responds, panel renders

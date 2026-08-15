@@ -69,7 +69,7 @@ impl PdhCounter {
         let mut v = PDH_FMT_COUNTERVALUE::default();
         let st = unsafe { PdhGetFormattedCounterValue(self.h, PDH_FMT_DOUBLE, None, &mut v) };
         // CStatus: 0=VALID 1=NEW_DATA，其余视为无效
-        (st == 0 && v.CStatus <= 1).then(|| unsafe { v.Anonymous.doubleValue })
+        (st == 0 && v.CStatus <= 1).then_some(unsafe { v.Anonymous.doubleValue })
     }
 
     /// 通配实例计数器的 (实例名, 值) 数组；无效实例被过滤
