@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { $ } from "../format";
+import { currentLang, setLang, type Lang } from "../i18n";
 import { DEFAULTS, saveThresholds, thresholds } from "../thresholds";
 
 const TH_INPUTS: Record<string, keyof typeof DEFAULTS> = {
@@ -30,6 +31,11 @@ export function init() {
   modal.addEventListener("click", (e) => {
     if (e.target === modal) modal.classList.add("hidden");
   });
+
+  // 界面语言（切换后重载页面，见 i18n.setLang）
+  const langSel = $("lang-select") as HTMLSelectElement;
+  langSel.value = currentLang();
+  langSel.addEventListener("change", () => setLang(langSel.value as Lang));
 
   for (const [id, key] of Object.entries(TH_INPUTS)) {
     $(id).addEventListener("change", (e) => {

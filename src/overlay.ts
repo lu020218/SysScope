@@ -2,6 +2,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, PhysicalSize } from "@tauri-apps/api/window";
 import "./overlay.css";
+import { applyStatic } from "./i18n";
 import { thresholds } from "./thresholds";
 
 interface Snapshot {
@@ -13,6 +14,10 @@ interface Snapshot {
 }
 
 const $ = (id: string) => document.getElementById(id)!;
+
+applyStatic();
+// 主窗口切换语言时会自我重载，悬浮窗是独立 WebView，需由后端广播叫醒
+void listen("lang-changed", () => location.reload());
 
 function setVal(el: HTMLElement, text: string, warn: boolean) {
   el.textContent = text;

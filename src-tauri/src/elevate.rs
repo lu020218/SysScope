@@ -89,13 +89,13 @@ pub fn ensure_elevated() -> bool {
     if relaunch_as_admin() {
         return false; // 提权实例已启动，本进程退出
     }
-    // 用户拒绝提权：提示后退出，避免以残缺功能运行造成误解
+    // 用户拒绝提权：提示后退出，避免以残缺功能运行造成误解。
+    // 这里只能用系统语言 —— 此刻 WebView 尚未创建，读不到用户的语言选择
+    let lang = crate::i18n::sys_lang();
     unsafe {
         use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING, MB_OK};
-        let text = wide(std::ffi::OsStr::new(
-            "SysScope 需要管理员权限才能采集 FPS 与温度等指标。\n\n请在 UAC 提示中允许，或右键选择“以管理员身份运行”。",
-        ));
-        let caption = wide(std::ffi::OsStr::new("SysScope"));
+        let text = wide(std::ffi::OsStr::new(crate::i18n::tr(lang, "elevate.body")));
+        let caption = wide(std::ffi::OsStr::new(crate::i18n::tr(lang, "elevate.title")));
         MessageBoxW(
             None,
             PCWSTR(text.as_ptr()),

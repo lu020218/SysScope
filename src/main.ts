@@ -11,6 +11,7 @@ import * as net from "./cards/net";
 import * as procs from "./cards/procs";
 import { buffers } from "./charts";
 import { $, fmtBytes } from "./format";
+import { applyStatic, currentLang } from "./i18n";
 import * as procdetail from "./modals/procdetail";
 import * as sessions from "./modals/sessions";
 import * as settings from "./modals/settings";
@@ -31,6 +32,12 @@ async function main() {
       console.error(`init ${name} failed:`, e);
     }
   };
+  // 先翻译静态文案再建卡片，避免中文一闪而过
+  await step("i18n", () => {
+    applyStatic();
+    // 托盘是原生菜单，需后端同步改文本（用户可能覆盖了系统语言）
+    void invoke("set_language", { lang: currentLang() }).catch(() => {});
+  });
   await step("tabs", initAllTabs);
   await step("procdetail", procdetail.init);
   await step("settings", settings.init);

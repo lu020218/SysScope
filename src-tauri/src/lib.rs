@@ -5,6 +5,7 @@ mod etw_util;
 mod fps;
 mod gpu;
 mod gpu_proc;
+mod i18n;
 mod mem_ext;
 mod net_ext;
 mod netproc;
@@ -21,7 +22,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// 切换 FPS 悬浮窗显隐，返回切换后的可见状态
 #[tauri::command]
@@ -109,16 +110,64 @@ fn set_webview_memory_level(app: &AppHandle, low: bool) {
     });
 }
 
+/// 托盘菜单项句柄：语言切换时就地改文本，避免重建整个托盘
+struct TrayItems {
+    show: MenuItem<tauri::Wry>,
+    record: MenuItem<tauri::Wry>,
+    overlay: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
+
+/// 前端切换语言后同步原生托盘（用户可能覆盖了系统语言）
+#[tauri::command]
+fn set_language(app: AppHandle, lang: String) {
+    let lang = i18n::Lang::parse(&lang);
+    let Some(items) = app.try_state::<Arc<TrayItems>>() else {
+        return;
+    };
+    let _ = items.show.set_text(i18n::tr(lang, "tray.show"));
+    let _ = items.record.set_text(i18n::tr(lang, "tray.record"));
+    let _ = items.overlay.set_text(i18n::tr(lang, "tray.overlay"));
+    let _ = items.quit.set_text(i18n::tr(lang, "tray.quit"));
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let _ = tray.set_tooltip(Some(i18n::tr(lang, "tray.tooltip")));
+    }
+    // 悬浮窗是独立 WebView，主窗口重载影响不到它，广播让它自己重载
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.emit("lang-changed", ());
+    }
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "显示面板", true, None::<&str>)?;
-    let record = MenuItem::with_id(app, "record", "开始 / 停止记录", true, None::<&str>)?;
-    let overlay = MenuItem::with_id(app, "overlay", "显示 / 隐藏悬浮窗", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    // 初始跟随系统语言；前端就绪后若用户另有选择，会经 set_language 覆盖
+    let lang = i18n::sys_lang();
+    let show = MenuItem::with_id(app, "show", i18n::tr(lang, "tray.show"), true, None::<&str>)?;
+    let record = MenuItem::with_id(
+        app,
+        "record",
+        i18n::tr(lang, "tray.record"),
+        true,
+        None::<&str>,
+    )?;
+    let overlay = MenuItem::with_id(
+        app,
+        "overlay",
+        i18n::tr(lang, "tray.overlay"),
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", i18n::tr(lang, "tray.quit"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &record, &overlay, &quit])?;
+    app.manage(Arc::new(TrayItems {
+        show: show.clone(),
+        record: record.clone(),
+        overlay: overlay.clone(),
+        quit: quit.clone(),
+    }));
 
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("SysScope 系统监控")
+        .tooltip(i18n::tr(lang, "tray.tooltip"))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -161,6 +210,7 @@ pub fn run() {
             toggle_overlay,
             window_control,
             set_main_on_top,
+            set_language,
             ping::set_ping_target,
             procdetail::process_detail,
             recorder::start_recording,
