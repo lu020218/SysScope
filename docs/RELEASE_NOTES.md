@@ -1,60 +1,61 @@
-# SysScope v0.1.0 — 首个发布版本
+A professional-grade system monitor for Windows — deep hardware metrics, a game
+overlay, and exportable reports.
 
-Windows 桌面系统状态实时监控工具，专业级指标覆盖，图表面板 + 游戏内悬浮窗。
+![dashboard](https://raw.githubusercontent.com/lu020218/SysScope/master/docs/images/dashboard.png)
 
-## ✨ 核心功能
+## What it does
 
-**六类监控对象，每类都有「概览 + 深度详情」双层视图：**
+Six subsystems, each with a live chart and a detail tab that answers *why*:
 
-- **CPU** — 总占用/每核占用、频率与热节流标注、温度、封装功耗、核心电压、P/E 核分组、有效频率、C-State 驻留、睿频状态
-- **GPU** — 占用/显存、核心与显存频率、温度/热点温度/显存温度、功耗与功耗墙、风扇、显存控制器负载、视频编解码引擎、PCIe 吞吐、硬件级热节流/功耗墙徽章
-- **内存** — 已用/可用/缓存/备用页列表、提交内存与占比、硬页错误率、内存压缩、内存频率与理论带宽
-- **磁盘** — 读写速率/IOPS/响应时间/队列、分区空间、SSD 健康度/累计写入/温度（SMART）
-- **网络** — 上下行速率与累计流量、延迟探测（RTT/抖动/丢包，目标可配）、TCP/UDP 连接数、重传率、网卡链路利用率
-- **进程** — CPU/内存/磁盘/网络/GPU 五维 Top-5，点击查看单进程详情（线程/句柄/私有内存/页错误/优先级/CPU 亲和性）
+- **CPU** — per-core load, P/E-core grouping, package power, core voltage,
+  effective clock, C-states, thermal-throttle flag
+- **GPU** — clocks, hotspot & VRAM temps, power vs. limit, fan RPM,
+  memory-controller load, encode/decode engines, PCIe throughput,
+  hardware throttle reasons
+- **Memory** — commit charge, standby/modified lists, hard page faults,
+  compression, DIMM speed
+- **Disk** — IOPS, sub-millisecond response times, queue depth, SSD health/TBW
+- **Network** — latency with jitter and loss, TCP states, retransmit rate,
+  link utilisation
+- **Processes** — top 5 by CPU, memory, disk, network **and GPU**; click a row
+  for threads, handles, private bytes, page faults, affinity
 
-**FPS 悬浮窗（OSD）** — 自动跟踪前台应用帧率（DXGI/D3D9），单行紧凑显示 FPS + CPU/GPU/内存/网络，可拖动、置顶、随内容自适应尺寸，游戏场景专用。
+**FPS overlay** — follows the foreground app, shows frame rate plus 1% / 0.1%
+lows, frame-time percentiles and stutter counts (ETW, same source as PresentMon).
 
-**会话记录与报告** — 一键录制监控会话（SQLite 落盘），导出 HTML 交互报告（内嵌历史曲线）、CSV/JSON 原始数据、Markdown 统计摘要。
+**Recording & reports** — capture a session to SQLite, export as a self-contained
+interactive HTML report, raw CSV/JSON, or a Markdown summary.
 
-**桌面体验** — 无边框自绘标题栏（双行：标题栏 + 工具栏）、系统托盘常驻（关闭到托盘并自动释放渲染内存）、窗口置顶图钉、告警阈值可配置、per-monitor DPI 感知、深色现代化界面。支持 `--minimized` 参数静默启动到托盘。
+## Performance
 
-## 💻 系统要求
-
-- Windows 10 / 11（x64）
-- **管理员权限**（启动时会弹出 UAC 确认，详见下方使用须知）
-- WebView2 运行时（Win11 及较新 Win10 已内置，安装包会在缺失时引导安装）
-- NVIDIA 独显走完整 GPU 指标；AMD/Intel 显卡走占用+显存降级路径
-
-## 📦 安装
-
-`SysScope_0.1.0_x64_en-US.msi` — MSI 安装包（6.9 MB）
-
-## ⚡ 性能表现
-
-| 指标 | 实测值 |
+| | |
 |---|---|
-| 启动到窗口可见 | **0.16 秒** |
-| 单次采样成本 | **约 20 ms**（1 秒档仅占 2% 时间片） |
-| 采集器初始化 | **221 ms** |
-| 托盘常驻内存 | **约 140 MB** |
-| 主面板显示时内存 | 约 490 MB（进程树口径，含 WebView2 渲染/GPU/服务子进程；其中 Rust 后端仅约 70 MB，其余为 Chromium 运行时固定开销） |
+| Sampling cost | ~20 ms per tick |
+| Startup to visible | 0.16 s |
+| Memory (tray-resident) | ~140 MB |
 
-采样周期采用目标时刻制，0.5s / 1s / 2s / 5s 各档位均精确兑现，不受采集耗时漂移影响。
+## Install
 
-## ⚠️ 使用须知
+Download the `.msi` below. Windows 10/11 x64.
 
-- **本程序需要管理员权限运行**，启动时会自动请求提权并弹出 UAC 确认（若已在管理员环境中启动则直接运行）。FPS 采集依赖 ETW 内核会话、CPU/GPU 温度依赖内核传感器驱动，两者都必须提权；提权后全部指标开箱即用。UAC 被拒绝时会提示并退出。
-- **不提供开机自启开关**：Windows 不允许要求提权的程序通过普通启动项自启，故该功能已移除。如需开机启动，请在「任务计划程序」中创建任务，勾选「使用最高权限运行」，并可添加 `--minimized` 参数实现静默启动到托盘。
-- 监控报告导出到 **`文档\SysScope\reports`**，HTML 报告可直接双击用浏览器打开或分享。
-- SSD SMART 信息（健康度/温度/TBW）在 Intel RST/VMD 模式下可能被拦截而显示 N/A，标准 AHCI/NVMe 直通正常。
-- GPU 完整指标（温度/功耗/频率/节流）需 NVIDIA 独显；AMD/Intel 显卡提供占用率与显存的降级支持。
-- 界面语言：简体中文。
+## Before you start
 
-## 🛠 技术栈
+- **Administrator rights are required.** The app requests elevation on launch —
+  FPS capture needs an ETW kernel session and temperatures need a kernel driver.
+  Everything else still works if you decline, but those metrics read N/A.
+- There is no auto-start toggle: Windows blocks elevated apps from normal startup
+  entries. Use Task Scheduler with "run with highest privileges" and the
+  `--minimized` flag if you want it at boot.
+- Reports are written to `Documents\SysScope\reports`.
+- Full GPU telemetry needs an NVIDIA card; AMD/Intel GPUs report load and VRAM.
+- SSD SMART data may be hidden by Intel RST/VMD.
+- UI language is Simplified Chinese.
 
-Rust + Tauri v2 · sysinfo / NVML / **PDH 性能计数器** / ETW / IpHelper / LibreHardwareMonitor（NativeAOT 原生 DLL）· 前端 TypeScript + uPlot。
+## Notes
 
----
+Built with Rust + Tauri 2. See the
+[README](https://github.com/lu020218/SysScope#readme) for details and
+[ARCHITECTURE.md](https://github.com/lu020218/SysScope/blob/master/docs/ARCHITECTURE.md)
+if you want to hack on it.
 
-> 本版本经过完整代码评审与重构（安全加固、架构模块化、测试分层）及性能专项优化，32 项自动化测试覆盖核心采集逻辑。
+MIT licensed. Bundles LibreHardwareMonitor (MPL-2.0) — see NOTICE.
