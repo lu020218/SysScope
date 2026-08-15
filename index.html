@@ -22,8 +22,9 @@
       </header>
 
       <div class="toolbar">
-        <!-- 记录按钮的文本由 sessions.ts 按录制状态渲染，此处只翻译 title -->
-        <button class="toggle-btn" id="record-btn" data-i18n-title="toolbar.record.title" title="开始/停止记录监控会话">● 记录</button>
+        <!-- 录制中时文本由 sessions.ts 改写为计时；这里的空闲态文案需要 data-i18n，
+             否则后端状态轮询成功之前会一直显示 HTML 里写死的中文 -->
+        <button class="toggle-btn" id="record-btn" data-i18n="rec.startBtn" data-i18n-title="toolbar.record.title" title="开始/停止记录监控会话">● 记录</button>
         <button class="toggle-btn" id="sessions-btn" data-i18n="toolbar.sessions" data-i18n-title="toolbar.sessions.title" title="查看会话并导出报告">报告</button>
         <button class="toggle-btn active" id="overlay-toggle" data-i18n="toolbar.overlay" data-i18n-title="toolbar.overlay.title" title="显示/隐藏 FPS 悬浮窗">悬浮窗</button>
         <div class="seg" id="window-seg">

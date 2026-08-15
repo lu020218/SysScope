@@ -1,6 +1,7 @@
 import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, addInfoBlock, fmtBytes, fmtRate, setWarn } from "../format";
+import { t } from "../i18n";
 import { activePane } from "../tabs";
 import { FIXED } from "../thresholds";
 import type { Snapshot } from "../types";
@@ -34,7 +35,12 @@ export function update(s: Snapshot, ts: number[], start: number) {
 
   if (pane === "ov") {
     $("disk-vols").textContent = s.storage.volumes
-      .map((v) => `${v.mount.replace(/\\$/, "")} 可用${fmtBytes(v.available)}`)
+      .map((v) =>
+        t("disk.volFree", {
+          mount: v.mount.replace(/\\$/, ""),
+          free: fmtBytes(v.available),
+        }),
+      )
       .join(" · ");
     $("disk-temps").textContent = s.storage_temps
       .filter((t) => t.temp != null)
@@ -58,29 +64,29 @@ function renderDetail(s: Snapshot) {
   wrap.innerHTML = "";
   const ms = (v: number | null) => (v != null ? `${v.toFixed(2)} ms` : "--");
   for (const d of s.storage.disks) {
-    addInfoBlock(wrap, `磁盘 ${d.name}`, [
-      ["读 IOPS", d.read_iops.toFixed(0)],
-      ["写 IOPS", d.write_iops.toFixed(0)],
-      ["读延迟", ms(d.read_ms)],
-      ["写延迟", ms(d.write_ms)],
-      ["队列", d.queue_len.toFixed(0)],
+    addInfoBlock(wrap, t("disk.block.disk", { name: d.name }), [
+      [t("disk.readIops"), d.read_iops.toFixed(0)],
+      [t("disk.writeIops"), d.write_iops.toFixed(0)],
+      [t("disk.readLatency"), ms(d.read_ms)],
+      [t("disk.writeLatency"), ms(d.write_ms)],
+      [t("disk.queue"), d.queue_len.toFixed(0)],
     ]);
   }
-  for (const t of s.storage_temps) {
-    addInfoBlock(wrap, t.name, [
-      ["温度", t.temp != null ? `${t.temp.toFixed(0)}°C` : "N/A"],
-      ["控制器", t.temp2 != null ? `${t.temp2.toFixed(0)}°C` : "N/A"],
-      ["健康", t.life != null ? `${t.life.toFixed(0)}%` : "N/A"],
+  for (const sm of s.storage_temps) {
+    addInfoBlock(wrap, sm.name, [
+      [t("disk.temp"), sm.temp != null ? `${sm.temp.toFixed(0)}°C` : "N/A"],
+      [t("disk.controller"), sm.temp2 != null ? `${sm.temp2.toFixed(0)}°C` : "N/A"],
+      [t("disk.health"), sm.life != null ? `${sm.life.toFixed(0)}%` : "N/A"],
       [
-        "累计写入",
-        t.written_gb != null ? `${(t.written_gb / 1024).toFixed(2)} TB` : "N/A",
+        t("disk.written"),
+        sm.written_gb != null ? `${(sm.written_gb / 1024).toFixed(2)} TB` : "N/A",
       ],
     ]);
   }
   if (s.storage_temps.length === 0) {
     const note = document.createElement("div");
     note.className = "sessions-empty";
-    note.textContent = "SMART 信息不可用（可能被 Intel RST/VMD 拦截）";
+    note.textContent = t("disk.smartUnavailable");
     wrap.appendChild(note);
   }
 }

@@ -1,6 +1,7 @@
 import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, setWarn } from "../format";
+import { t } from "../i18n";
 import { activePane } from "../tabs";
 import type { Thresholds } from "../thresholds";
 import type { Snapshot, StaticInfo } from "../types";
@@ -64,8 +65,11 @@ function buildPeGroups(n: number) {
     const title = document.createElement("span");
     title.className = "pe-title";
     title.textContent = hybrid
-      ? `${cls === maxClass ? "P-Core" : "E-Core"} × ${indices.length} 线程`
-      : `全部核心 × ${indices.length}`;
+      ? t("cpu.coreGroup.hybrid", {
+          kind: cls === maxClass ? "P-Core" : "E-Core",
+          n: indices.length,
+        })
+      : t("cpu.coreGroup.all", { n: indices.length });
     const avg = document.createElement("b");
     avg.className = "pe-avg";
     avg.textContent = "--%";
@@ -135,7 +139,7 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
     s.cpu.temp_c >= th.cpuTemp - 5 &&
     s.cpu.freq_mhz < maxFreqSeen * 0.85;
   const freqEl = $("cpu-freq");
-  freqEl.textContent = `${s.cpu.freq_mhz} MHz${throttling ? " ⚠节流" : ""}`;
+  freqEl.textContent = `${s.cpu.freq_mhz} MHz${throttling ? ` ⚠${t("cpu.throttling")}` : ""}`;
   setWarn(freqEl, throttling);
 
   // 会话统计始终累计（切到频率页时数据完整）
@@ -196,7 +200,7 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
       s.cpu.power_peak_w != null ? `${s.cpu.power_peak_w.toFixed(1)} W` : "N/A";
     $("pw-volt").textContent =
       s.cpu.voltage_v != null ? `${s.cpu.voltage_v.toFixed(3)} V` : "N/A";
-    $("pw-boost").textContent = s.cpu.boost ? "睿频中" : "基准运行";
+    $("pw-boost").textContent = t(s.cpu.boost ? "cpu.freq.boost" : "cpu.atBase");
     const cs = s.cpu.perf;
     for (const [id, v] of [
       ["cs1", cs?.c1_pct],

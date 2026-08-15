@@ -15,6 +15,7 @@ const en: Record<Keys, string> = {
   "app.loading": "Loading system info…",
   "app.crashWarn":
     "The sampling thread crashed and restarted — data may have a short gap",
+  "app.staticInfoFailed": "Could not read system info: {err}",
   "win.onTop": "Always on top",
   "win.settings": "Settings",
   "win.min": "Minimise",
@@ -56,6 +57,30 @@ const en: Record<Keys, string> = {
   "cpu.power.c1": "C1 residency",
   "cpu.power.c2": "C2 residency",
   "cpu.power.c3": "C3 residency",
+  "cpu.atBase": "At base clock",
+  "cpu.throttling": "throttled",
+  "cpu.coreGroup.hybrid": "{kind} × {n} threads",
+  "cpu.coreGroup.all": "All cores × {n}",
+
+  // GPU card (built at runtime, one per adapter)
+  "gpu.badge.thermal": "Thermal",
+  "gpu.badge.power": "Power cap",
+  "gpu.stat.util": "Load",
+  "gpu.stat.vram": "VRAM",
+  "gpu.legend.util": "Load",
+  "gpu.legend.vram": "VRAM",
+  "gpu.sub.temp": "Temp",
+  "gpu.sub.power": "Power",
+  "gpu.sub.core": "Core",
+  "gpu.sub.fan": "Fan",
+  "gpu.detail.hotspot": "Hotspot temp",
+  "gpu.detail.vramTemp": "VRAM temp",
+  "gpu.detail.slowdown": "Slowdown threshold",
+  "gpu.detail.fan": "Fan",
+  "gpu.detail.memCtrl": "Memory controller load",
+  "gpu.detail.codec": "Encode / decode",
+  "gpu.detail.pcieRx": "PCIe RX",
+  "gpu.detail.pcieTx": "PCIe TX",
 
   // Memory
   "mem.stat.pct": "Usage",
@@ -71,6 +96,8 @@ const en: Record<Keys, string> = {
   "mem.detail.commitPct": "Commit ratio",
   "mem.detail.speed": "DIMM speed",
   "mem.detail.bandwidth": "Theoretical bandwidth",
+  "mem.pfPerSec": "{all} / {hard} per second",
+  "mem.dimms": "{mts} MT/s × {n}",
 
   // Network
   "net.stat.down": "↓ Down",
@@ -80,17 +107,42 @@ const en: Record<Keys, string> = {
   "net.sub.iface": "Adapter",
   "net.sub.ping": "Latency",
   "net.sub.loss": "Loss",
+  "net.ping.timeout": "timeout",
+  "net.ping.title": "Target {target} · mean {avg}ms",
+  "net.conn.title": "TCP / UDP connections",
+  "net.conn.established": "Established",
+  "net.conn.listen": "Listening",
+  "net.conn.udp": "UDP endpoints",
+  "net.retrans.title": "TCP retransmits",
+  "net.retrans.rate": "Retransmits",
+  "net.retrans.pct": "Retransmit rate",
+  "net.adapter.link": "Link",
+  "net.adapter.util": "Utilisation",
 
   // Disk
   "disk.stat.active": "Active",
   "disk.read": "Read",
   "disk.write": "Write",
+  "disk.volFree": "{mount} {free} free",
+  "disk.block.disk": "Disk {name}",
+  "disk.readIops": "Read IOPS",
+  "disk.writeIops": "Write IOPS",
+  "disk.readLatency": "Read latency",
+  "disk.writeLatency": "Write latency",
+  "disk.queue": "Queue",
+  "disk.temp": "Temperature",
+  "disk.controller": "Controller",
+  "disk.health": "Health",
+  "disk.written": "Total written",
+  "disk.smartUnavailable":
+    "SMART data unavailable (Intel RST/VMD may be blocking it)",
 
   // Top-5 column headers — the columns are narrow, keep these to one short word
   "procs.col.mem": "Memory",
   "procs.col.net": "Network",
   "procs.col.disk": "Disk",
   "procs.col.gpu": "GPU · VRAM",
+  "procs.rowTitle": "PID {pid} · click for details",
 
   // Process detail dialog
   "pd.title": "Process details",
@@ -102,11 +154,29 @@ const en: Record<Keys, string> = {
   "pd.pf": "Page faults",
   "pd.prio": "Priority",
   "pd.affinity": "CPU affinity",
+  "pd.gone": "Process exited or is inaccessible",
+  // Process priority — procdetail.rs returns these as keys
+  "prio.idle": "Idle",
+  "prio.belowNormal": "Below normal",
+  "prio.normal": "Normal",
+  "prio.aboveNormal": "Above normal",
+  "prio.high": "High",
+  "prio.realtime": "Realtime",
 
-  // Sessions dialog
+  // Record button and sessions dialog
+  "rec.startBtn": "● Record",
   "sessions.title": "Recorded sessions",
   "sessions.openDir": "📁 Reports folder",
   "sessions.openDir.title": "Open the reports folder",
+  "sessions.empty": "No sessions yet — hit “● Record” in the toolbar to start",
+  "sessions.inProgress": "in progress",
+  "sessions.duration": "{h}h {m}m {s}s",
+  "sessions.samples": "{n} samples",
+  "sessions.md": "Summary",
+  "sessions.delete": "Delete",
+  "sessions.exported": "Exported to {path} (click to reveal)",
+  "sessions.exportFailed": "Export failed: {err}",
+  "sessions.reportsDir": "Reports folder: {dir}",
 
   // Settings dialog
   "settings.title": "Settings",

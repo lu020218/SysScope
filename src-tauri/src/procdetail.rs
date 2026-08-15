@@ -35,14 +35,16 @@ fn filetime_ms(ft: &FILETIME) -> u64 {
     ((ft.dwHighDateTime as u64) << 32 | ft.dwLowDateTime as u64) / 10_000
 }
 
+/// 返回 i18n key 而非本地化文本，由前端翻译。未知优先级直接返回十六进制值 ——
+/// 它不是可翻译文案，前端 t() 找不到 key 时会原样显示。
 fn priority_name(class: u32) -> String {
     match class {
-        0x40 => "低".into(),
-        0x4000 => "低于正常".into(),
-        0x20 => "正常".into(),
-        0x8000 => "高于正常".into(),
-        0x80 => "高".into(),
-        0x100 => "实时".into(),
+        0x40 => "prio.idle".into(),
+        0x4000 => "prio.belowNormal".into(),
+        0x20 => "prio.normal".into(),
+        0x8000 => "prio.aboveNormal".into(),
+        0x80 => "prio.high".into(),
+        0x100 => "prio.realtime".into(),
         other => format!("0x{other:X}"),
     }
 }

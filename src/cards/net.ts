@@ -1,6 +1,7 @@
 import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, addInfoBlock, fmtLinkSpeed, fmtRate, setWarn } from "../format";
+import { t } from "../i18n";
 import { activePane } from "../tabs";
 import { FIXED } from "../thresholds";
 import type { Snapshot } from "../types";
@@ -33,8 +34,11 @@ export function update(s: Snapshot, ts: number[], start: number) {
       pingEl.textContent =
         s.net.ping.rtt_ms != null
           ? `${s.net.ping.rtt_ms.toFixed(0)}ms ±${s.net.ping.jitter_ms.toFixed(1)}`
-          : "超时";
-      pingEl.title = `目标 ${s.net.ping.target} · 均值 ${s.net.ping.avg_ms.toFixed(1)}ms`;
+          : t("net.ping.timeout");
+      pingEl.title = t("net.ping.title", {
+        target: s.net.ping.target,
+        avg: s.net.ping.avg_ms.toFixed(1),
+      });
       setWarn(
         pingEl,
         s.net.ping.rtt_ms == null || s.net.ping.rtt_ms > FIXED.pingRttMs,
@@ -63,20 +67,20 @@ export function update(s: Snapshot, ts: number[], start: number) {
 function renderDetail(s: Snapshot) {
   const wrap = $("net-detail");
   wrap.innerHTML = "";
-  addInfoBlock(wrap, "TCP / UDP 连接", [
-    ["已建立", String(s.net.tcp_established)],
+  addInfoBlock(wrap, t("net.conn.title"), [
+    [t("net.conn.established"), String(s.net.tcp_established)],
     ["TIME_WAIT", String(s.net.tcp_time_wait)],
-    ["监听", String(s.net.tcp_listen)],
-    ["UDP 端点", String(s.net.udp_endpoints)],
+    [t("net.conn.listen"), String(s.net.tcp_listen)],
+    [t("net.conn.udp"), String(s.net.udp_endpoints)],
   ]);
-  addInfoBlock(wrap, "TCP 重传", [
-    ["重传", `${s.net.retrans_ps.toFixed(0)}/s`],
-    ["重传率", `${s.net.retrans_pct.toFixed(2)}%`],
+  addInfoBlock(wrap, t("net.retrans.title"), [
+    [t("net.retrans.rate"), `${s.net.retrans_ps.toFixed(0)}/s`],
+    [t("net.retrans.pct"), `${s.net.retrans_pct.toFixed(2)}%`],
   ]);
   for (const a of s.net.adapters) {
     addInfoBlock(wrap, a.name, [
-      ["链路", fmtLinkSpeed(a.link_bps)],
-      ["利用率", `${a.util_pct.toFixed(1)}%`],
+      [t("net.adapter.link"), fmtLinkSpeed(a.link_bps)],
+      [t("net.adapter.util"), `${a.util_pct.toFixed(1)}%`],
     ]);
   }
 }

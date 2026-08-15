@@ -1,6 +1,7 @@
 import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, fmtBytes, fmtRate, setWarn } from "../format";
+import { applyStatic } from "../i18n";
 import { activePane, wireTabs } from "../tabs";
 import { FIXED, type Thresholds } from "../thresholds";
 import type { GpuSnapshot, Snapshot } from "../types";
@@ -44,47 +45,49 @@ function buildGpuCards(gpus: GpuSnapshot[]) {
       <div class="card-head">
         <h2 class="gpu-title"></h2>
         <div class="head-right">
-          <span class="tbadge t-thermal hidden">热节流</span>
-          <span class="tbadge t-power hidden">功耗墙</span>
+          <span class="tbadge t-thermal hidden" data-i18n="gpu.badge.thermal">热节流</span>
+          <span class="tbadge t-power hidden" data-i18n="gpu.badge.power">功耗墙</span>
           <div class="stats">
             <div class="stat">
               <span class="stat-value gpu-util">--%</span>
-              <span class="stat-label">占用</span>
+              <span class="stat-label" data-i18n="gpu.stat.util">占用</span>
             </div>
             <div class="stat">
               <span class="stat-value gpu-vram">--</span>
-              <span class="stat-label">显存</span>
+              <span class="stat-label" data-i18n="gpu.stat.vram">显存</span>
             </div>
           </div>
         </div>
       </div>
       <div class="tabs">
-        <button data-pane="ov" class="active">概览</button>
-        <button data-pane="detail">详情</button>
+        <button data-pane="ov" class="active" data-i18n="tab.overview">概览</button>
+        <button data-pane="detail" data-i18n="tab.detail">详情</button>
       </div>
       <div class="tab-pane" data-pane="ov">
         <div class="chart gpu-chart"></div>
         <div class="substats">
-          <span class="legend legend-util">占用率</span>
-          <span class="legend legend-vram">显存</span>
-          <span>温度 <b class="gpu-temp">--</b></span>
-          <span>功耗 <b class="gpu-power">--</b></span>
-          <span>核心 <b class="gpu-core">--</b></span>
-          <span>风扇 <b class="gpu-fan">--</b></span>
+          <span class="legend legend-util" data-i18n="gpu.legend.util">占用率</span>
+          <span class="legend legend-vram" data-i18n="gpu.legend.vram">显存</span>
+          <span><span data-i18n="gpu.sub.temp">温度</span> <b class="gpu-temp">--</b></span>
+          <span><span data-i18n="gpu.sub.power">功耗</span> <b class="gpu-power">--</b></span>
+          <span><span data-i18n="gpu.sub.core">核心</span> <b class="gpu-core">--</b></span>
+          <span><span data-i18n="gpu.sub.fan">风扇</span> <b class="gpu-fan">--</b></span>
         </div>
       </div>
       <div class="tab-pane hidden" data-pane="detail">
         <div class="kv-rows kv-2col">
-          <div class="kv"><span>热点温度</span><b data-kv="hotspot">--</b></div>
-          <div class="kv"><span>显存温度</span><b data-kv="vramtemp">--</b></div>
-          <div class="kv"><span>降频阈值</span><b data-kv="slowdown">--</b></div>
-          <div class="kv"><span>风扇</span><b data-kv="fan2">--</b></div>
-          <div class="kv"><span>显存控制器负载</span><b data-kv="memctrl">--</b></div>
-          <div class="kv"><span>视频编码 / 解码</span><b data-kv="codec">--</b></div>
-          <div class="kv"><span>PCIe 接收</span><b data-kv="pcierx">--</b></div>
-          <div class="kv"><span>PCIe 发送</span><b data-kv="pcietx">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.hotspot">热点温度</span><b data-kv="hotspot">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.vramTemp">显存温度</span><b data-kv="vramtemp">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.slowdown">降频阈值</span><b data-kv="slowdown">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.fan">风扇</span><b data-kv="fan2">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.memCtrl">显存控制器负载</span><b data-kv="memctrl">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.codec">视频编码 / 解码</span><b data-kv="codec">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.pcieRx">PCIe 接收</span><b data-kv="pcierx">--</b></div>
+          <div class="kv"><span data-i18n="gpu.detail.pcieTx">PCIe 发送</span><b data-kv="pcietx">--</b></div>
         </div>
       </div>`;
+    // 卡片是运行时插入的，模板里的 data-i18n 需在此翻译
+    applyStatic(card);
     // GPU 名称来自驱动（外部字符串），用 textContent 填充避免 HTML 注入
     (card.querySelector(".gpu-title") as HTMLElement).textContent =
       `GPU${gpus.length > 1 ? ` ${i}` : ""} · ${g.name}`;

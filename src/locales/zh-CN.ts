@@ -9,6 +9,7 @@ const zh = {
   // 顶栏与工具条
   "app.loading": "加载系统信息…",
   "app.crashWarn": "采集线程发生异常，已自动重启，数据可能有短暂缺口",
+  "app.staticInfoFailed": "系统信息获取失败: {err}",
   "win.onTop": "窗口置顶",
   "win.settings": "设置",
   "win.min": "最小化",
@@ -50,6 +51,30 @@ const zh = {
   "cpu.power.c1": "C1 驻留",
   "cpu.power.c2": "C2 驻留",
   "cpu.power.c3": "C3 驻留",
+  "cpu.atBase": "基准运行",
+  "cpu.throttling": "节流",
+  "cpu.coreGroup.hybrid": "{kind} × {n} 线程",
+  "cpu.coreGroup.all": "全部核心 × {n}",
+
+  // GPU 卡片（运行时按适配器数量生成）
+  "gpu.badge.thermal": "热节流",
+  "gpu.badge.power": "功耗墙",
+  "gpu.stat.util": "占用",
+  "gpu.stat.vram": "显存",
+  "gpu.legend.util": "占用率",
+  "gpu.legend.vram": "显存",
+  "gpu.sub.temp": "温度",
+  "gpu.sub.power": "功耗",
+  "gpu.sub.core": "核心",
+  "gpu.sub.fan": "风扇",
+  "gpu.detail.hotspot": "热点温度",
+  "gpu.detail.vramTemp": "显存温度",
+  "gpu.detail.slowdown": "降频阈值",
+  "gpu.detail.fan": "风扇",
+  "gpu.detail.memCtrl": "显存控制器负载",
+  "gpu.detail.codec": "视频编码 / 解码",
+  "gpu.detail.pcieRx": "PCIe 接收",
+  "gpu.detail.pcieTx": "PCIe 发送",
 
   // 内存
   "mem.stat.pct": "占用率",
@@ -65,6 +90,8 @@ const zh = {
   "mem.detail.commitPct": "提交占比",
   "mem.detail.speed": "内存频率",
   "mem.detail.bandwidth": "理论带宽",
+  "mem.pfPerSec": "{all} / {hard} 每秒",
+  "mem.dimms": "{mts} MT/s × {n} 条",
 
   // 网络
   "net.stat.down": "↓ 下载",
@@ -74,17 +101,41 @@ const zh = {
   "net.sub.iface": "接口",
   "net.sub.ping": "延迟",
   "net.sub.loss": "丢包",
+  "net.ping.timeout": "超时",
+  "net.ping.title": "目标 {target} · 均值 {avg}ms",
+  "net.conn.title": "TCP / UDP 连接",
+  "net.conn.established": "已建立",
+  "net.conn.listen": "监听",
+  "net.conn.udp": "UDP 端点",
+  "net.retrans.title": "TCP 重传",
+  "net.retrans.rate": "重传",
+  "net.retrans.pct": "重传率",
+  "net.adapter.link": "链路",
+  "net.adapter.util": "利用率",
 
   // 磁盘
   "disk.stat.active": "活动",
   "disk.read": "读取",
   "disk.write": "写入",
+  "disk.volFree": "{mount} 可用{free}",
+  "disk.block.disk": "磁盘 {name}",
+  "disk.readIops": "读 IOPS",
+  "disk.writeIops": "写 IOPS",
+  "disk.readLatency": "读延迟",
+  "disk.writeLatency": "写延迟",
+  "disk.queue": "队列",
+  "disk.temp": "温度",
+  "disk.controller": "控制器",
+  "disk.health": "健康",
+  "disk.written": "累计写入",
+  "disk.smartUnavailable": "SMART 信息不可用（可能被 Intel RST/VMD 拦截）",
 
   // 进程 Top 5 的列头（列很窄，英文需从简）
   "procs.col.mem": "内存",
   "procs.col.net": "网络",
   "procs.col.disk": "磁盘",
   "procs.col.gpu": "GPU · 显存",
+  "procs.rowTitle": "PID {pid} · 点击查看详情",
 
   // 进程详情弹窗
   "pd.title": "进程详情",
@@ -96,11 +147,29 @@ const zh = {
   "pd.pf": "累计页错误",
   "pd.prio": "优先级",
   "pd.affinity": "CPU 亲和性",
+  "pd.gone": "进程已退出或无法访问",
+  // 进程优先级：后端 procdetail.rs 返回这些 key
+  "prio.idle": "低",
+  "prio.belowNormal": "低于正常",
+  "prio.normal": "正常",
+  "prio.aboveNormal": "高于正常",
+  "prio.high": "高",
+  "prio.realtime": "实时",
 
-  // 会话弹窗
+  // 记录按钮与会话弹窗
+  "rec.startBtn": "● 记录",
   "sessions.title": "监控会话",
   "sessions.openDir": "📁 报告目录",
   "sessions.openDir.title": "打开报告目录",
+  "sessions.empty": "暂无会话，点击顶栏「● 记录」开始录制",
+  "sessions.inProgress": "进行中",
+  "sessions.duration": "{h}时{m}分{s}秒",
+  "sessions.samples": "{n} 个采样",
+  "sessions.md": "摘要",
+  "sessions.delete": "删除",
+  "sessions.exported": "已导出：{path}（点击定位文件）",
+  "sessions.exportFailed": "导出失败：{err}",
+  "sessions.reportsDir": "报告目录：{dir}",
 
   // 设置弹窗
   "settings.title": "设置",

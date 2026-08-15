@@ -1,4 +1,5 @@
 import { $, fmtBytes, fmtRate } from "../format";
+import { t } from "../i18n";
 import { open as openProcDetail } from "../modals/procdetail";
 import type { Snapshot } from "../types";
 
@@ -15,7 +16,7 @@ function renderProcs<T extends { pid: number; name: string }>(
     const name = document.createElement("span");
     name.className = "proc-name";
     name.textContent = p.name;
-    name.title = `PID ${p.pid} · 点击查看详情`;
+    name.title = t("procs.rowTitle", { pid: p.pid });
     const val = document.createElement("span");
     val.className = "proc-val";
     val.textContent = fmt(p);

@@ -11,7 +11,7 @@ import * as net from "./cards/net";
 import * as procs from "./cards/procs";
 import { buffers } from "./charts";
 import { $, fmtBytes } from "./format";
-import { applyStatic, currentLang } from "./i18n";
+import { applyStatic, currentLang, t } from "./i18n";
 import * as procdetail from "./modals/procdetail";
 import * as sessions from "./modals/sessions";
 import * as settings from "./modals/settings";
@@ -61,7 +61,7 @@ async function main() {
     $("static-info").textContent =
       `${info.cpu_name} · ${cores} · ${fmtBytes(info.total_mem)} · ${info.os}`;
   } catch (e) {
-    $("static-info").textContent = `系统信息获取失败: ${e}`;
+    $("static-info").textContent = t("app.staticInfoFailed", { err: String(e) });
   }
   cpu.init(info);
   mem.init();

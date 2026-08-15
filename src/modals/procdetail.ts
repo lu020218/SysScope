@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCoreClasses } from "../cards/cpu";
 import { $, fmtBytes, fmtCpuTime } from "../format";
+import { t } from "../i18n";
 import type { ProcDetail } from "../types";
 
 let timer: number | null = null;
@@ -34,7 +35,7 @@ export function open(pid: number, name: string) {
   const tick = async () => {
     const d = await invoke<ProcDetail>("process_detail", { pid });
     if (!d.ok) {
-      $("pd-prio").textContent = "进程已退出或无法访问";
+      $("pd-prio").textContent = t("pd.gone");
       return;
     }
     $("pd-cputime").textContent = fmtCpuTime(d.cpu_time_ms);
@@ -44,7 +45,8 @@ export function open(pid: number, name: string) {
       `${fmtBytes(d.working_set)} / ${fmtBytes(d.working_set_peak)}`;
     $("pd-priv").textContent = fmtBytes(d.private_bytes);
     $("pd-pf").textContent = d.page_faults.toLocaleString();
-    $("pd-prio").textContent = d.priority;
+    // 后端返回的是 i18n key（未知优先级为十六进制值，t() 会原样透传）
+    $("pd-prio").textContent = t(d.priority);
     renderAffinity(d.affinity_mask);
   };
   void tick();

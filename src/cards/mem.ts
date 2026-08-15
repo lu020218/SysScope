@@ -1,6 +1,7 @@
 import type uPlot from "uplot";
 import { buffers, makeChart } from "../charts";
 import { $, fmtBytes, setWarn } from "../format";
+import { t } from "../i18n";
 import { activePane } from "../tabs";
 import { FIXED, type Thresholds } from "../thresholds";
 import type { Snapshot } from "../types";
@@ -40,8 +41,10 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
     $("mm-cached").textContent = fmtBytes(s.mem.standby_bytes + s.mem.modified_bytes);
     $("mm-standby").textContent =
       `${fmtBytes(s.mem.standby_bytes)} / ${fmtBytes(s.mem.modified_bytes)}`;
-    $("mm-pf").textContent =
-      `${s.mem.page_faults_ps.toFixed(0)} / ${s.mem.hard_faults_ps.toFixed(0)} 每秒`;
+    $("mm-pf").textContent = t("mem.pfPerSec", {
+      all: s.mem.page_faults_ps.toFixed(0),
+      hard: s.mem.hard_faults_ps.toFixed(0),
+    });
     $("mm-comp").textContent =
       s.mem.compression != null ? fmtBytes(s.mem.compression) : "N/A";
     $("mm-swap").textContent =
@@ -56,7 +59,10 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
     }
     $("mm-speed").textContent =
       s.mem.mem_speed_mts > 0
-        ? `${s.mem.mem_speed_mts} MT/s × ${s.mem.mem_modules} 条`
+        ? t("mem.dimms", {
+            mts: s.mem.mem_speed_mts,
+            n: s.mem.mem_modules,
+          })
         : "N/A";
     $("mm-bw").textContent =
       s.mem.theo_bandwidth_gbps > 0

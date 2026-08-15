@@ -17,7 +17,7 @@ function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.(ts|html)$/.test(p)) out.push(p);
+    else if (/\.(ts|html|rs)$/.test(p)) out.push(p);
   }
   return out;
 }
@@ -31,14 +31,16 @@ const files = [
   ),
 ];
 
+// 两级判定：
+//   used      —— data-i18n / t("literal")，用于查「引用了但没定义」
+//   mentioned —— 源码里出现过的任意字符串字面量，用于查「定义了但没人用」
+// 后者必须放宽，因为 key 未必静态可见：t(cond ? "a" : "b") 里的分支、
+// 以及后端 procdetail.rs 返回的 prio.* 都不会被严格模式扫到。
 const used = new Map(); // key -> 首次引用位置
+const mentioned = new Set();
 for (const file of files) {
   const text = readFileSync(file, "utf8");
-  const patterns = [
-    /data-i18n(?:-title)?="([^"]+)"/g,
-    /\bt\(\s*"([^"]+)"/g,
-  ];
-  for (const re of patterns) {
+  for (const re of [/data-i18n(?:-title)?="([^"]+)"/g, /\bt\(\s*"([^"]+)"/g]) {
     for (const m of text.matchAll(re)) {
       if (!used.has(m[1])) {
         const line = text.slice(0, m.index).split("\n").length;
@@ -47,12 +49,17 @@ for (const file of files) {
     }
   }
 }
+for (const file of [...files, ...walk(join(ROOT, "src-tauri/src"))]) {
+  for (const m of readFileSync(file, "utf8").matchAll(/"([^"\n]+)"/g)) {
+    mentioned.add(m[1]);
+  }
+}
 
 const zh = readFileSync(join(ROOT, "src/locales/zh-CN.ts"), "utf8");
 const defined = new Set([...zh.matchAll(/^\s*"([^"]+)":/gm)].map((m) => m[1]));
 
 const missing = [...used].filter(([k]) => !defined.has(k));
-const unused = [...defined].filter((k) => !used.has(k));
+const unused = [...defined].filter((k) => !mentioned.has(k));
 
 for (const [key, where] of missing) {
   console.error(`missing key: "${key}" referenced at ${where}`);
