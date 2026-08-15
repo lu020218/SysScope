@@ -1,5 +1,6 @@
 mod cpu_perf;
 mod disk;
+mod elevate;
 mod etw_util;
 mod fps;
 mod gpu;
@@ -144,6 +145,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 必须在初始化 Tauri（含单实例插件）之前完成：未提权时本进程只负责
+    // 拉起提权实例然后退出，不应注册任何全局状态
+    if !elevate::ensure_elevated() {
+        return;
+    }
     tauri::Builder::default()
         // 单实例：二次启动（如自启 + 手动双击）时唤起既有实例的主窗口
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

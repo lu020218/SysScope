@@ -17,12 +17,17 @@
         language="*" />
     </dependentAssembly>
   </dependency>
-  <!-- FPS capture (ETW kernel session) and CPU/GPU temperature (LHM kernel
-       driver) both require elevation; without it those metrics read N/A. -->
+  <!-- Runs as invoker, then self-elevates at startup (see relaunch_as_admin).
+       Why not requireAdministrator: the MSI "launch app" action starts the exe
+       with CreateProcess under a non-elevated token, which cannot launch a
+       requireAdministrator binary (ERROR_ELEVATION_REQUIRED) and fails
+       silently. Self-elevation keeps every launch path working while still
+       ending up elevated, which FPS (ETW) and temperatures (LHM driver)
+       require. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

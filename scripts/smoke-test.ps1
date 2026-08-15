@@ -162,11 +162,34 @@ if ($proc) {
 }
 
 Start-Sleep -Seconds 6
-$alive = $null -ne (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue)
+$origPid = $proc.Id
+$alive = $null -ne (Get-Process -Id $origPid -ErrorAction SilentlyContinue)
+$selfElevated = $false
+
+if (-not $alive) {
+    # Started without admin rights the app self-elevates: the first process
+    # fires a UAC request and exits, then an elevated instance appears under a
+    # NEW pid. Wait for that replacement before calling it a crash (a human may
+    # need to confirm the UAC prompt, hence the generous window).
+    Write-Host "       (first pid exited - waiting for an elevated instance...)"
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline -and -not $alive) {
+        Start-Sleep -Milliseconds 500
+        $cand = Get-Process sysscope -ErrorAction SilentlyContinue |
+            Where-Object { $_.Id -ne $origPid } | Select-Object -First 1
+        if ($cand) { $proc = $cand; $alive = $true; $selfElevated = $true }
+    }
+    if ($alive) { Start-Sleep -Seconds 6 }   # let it settle
+}
+
 if ($alive) {
-    Check "survives 6s" $true "no instant exit"
+    if ($selfElevated) {
+        Check "survives startup" $true ("self-elevated to pid={0}" -f $proc.Id)
+    } else {
+        Check "survives startup" $true "no instant exit"
+    }
 } else {
-    Check "survives 6s" $false "exited right after start (SxS / missing DLL export?)"
+    Check "survives startup" $false "exited with no elevated instance (SxS / missing export / UAC declined)"
     Write-Host ""
     Write-Host "RESULT: FAIL" -ForegroundColor Red
     exit 1
