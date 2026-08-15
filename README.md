@@ -65,6 +65,11 @@ Grab the latest installer from the [Releases page](../../releases).
 - NVIDIA GPUs get the full metric set (via NVML). AMD and Intel GPUs fall back to
   load and VRAM via performance counters.
 
+The UI ships in English and Simplified Chinese. It follows your Windows display
+language on first run; change it under Settings → Language. Exported reports use
+whichever language the UI is in at export time — CSV and JSON keep English column
+names so downstream tooling keeps working.
+
 Reports are written to `Documents\SysScope\reports`.
 
 ---
@@ -95,8 +100,9 @@ cannot find `vswhere`, run it from a VS Developer Prompt or add
 ### Tests
 
 ```bash
-cd src-tauri && cargo test                        # 25 pure-logic tests, CI-safe
+cd src-tauri && cargo test                        # 29 pure-logic tests, CI-safe
 cd src-tauri && cargo test -- --include-ignored   # + 8 tests needing real hardware
+node scripts/check-i18n.mjs                       # translation keys line up
 ```
 
 The hardware tier is marked `#[ignore]` because it needs admin rights, a GPU and

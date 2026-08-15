@@ -100,6 +100,7 @@ async function refreshSessions() {
         const path = await invoke<string>("export_report", {
           sessionId: s.id,
           format: fmt,
+          lang: currentLang(),
         });
         toast.textContent = t("sessions.exported", { path });
         toast.classList.remove("hidden", "error");

@@ -33,6 +33,7 @@ the overlay, query one process in depth.
 |---|---|
 | `lib.rs` | Tauri setup, command registry, tray, window plumbing |
 | `elevate.rs` | Self-elevation at startup (runs before Tauri initialises) |
+| `i18n.rs` | The handful of native strings — tray, elevation dialog, reports |
 | `sampler.rs` | The sampling loop, `SamplerCtx`, `Snapshot` assembly, top-N processes |
 | `pdh.rs` | PDH query wrapper — the single query handle every counter hangs off |
 | `disk.rs` | Physical disk I/O, latency, volumes |
@@ -72,6 +73,17 @@ N/A. A monitor that refuses to start because one sensor is missing is useless.
 `requireAdministrator` instead would break the MSI's "launch app" checkbox, which
 uses `CreateProcess` under a non-elevated token and fails silently.
 
+**Language lives in the frontend; the backend keeps a small table.** Almost every
+user-visible string is inside the WebView, so `src/i18n.ts` owns the language and
+persists the choice. Only the tray menu, the elevation dialog and report output
+are native, and `i18n.rs` covers those with a static match — no i18n crate.
+The tray is re-labelled in place via `MenuItem::set_text` when the frontend calls
+`set_language`, so the UI and the tray never disagree.
+
+One case cannot be fixed: the elevation-failure dialog in `elevate.rs` runs
+*before* Tauri starts, when there is no WebView and no way to read the user's
+choice, so it always follows the OS display language.
+
 **Register state before doing slow work in `setup()`.** Tauri creates the window
 and starts loading the frontend *before* `setup()` runs. If `app.manage()` comes
 after a slow DB migration, early `invoke` calls fail with "state not managed" and
@@ -84,6 +96,7 @@ No framework — plain TypeScript modules, Vite, uPlot for charts.
 | File | Responsibility |
 |---|---|
 | `main.ts` | Bootstrap; subscribes to `metrics` and dispatches to cards |
+| `i18n.ts` | `t()`, `applyStatic()`, `setLang()`; packs in `locales/` |
 | `types.ts` | Mirrors the backend `Snapshot` shape |
 | `charts.ts` | uPlot factory + `RingBuffers` (shared time-series buffer) |
 | `tabs.ts` | Tab wiring driven by `data-pane` attributes |
@@ -93,12 +106,21 @@ No framework — plain TypeScript modules, Vite, uPlot for charts.
 | `modals/*.ts` | Sessions/export, settings, process detail |
 | `overlay.ts` | The FPS overlay window (separate entry point) |
 
-Two conventions matter:
+Three conventions matter:
 
 - **Hidden panes skip rendering.** Each card checks `activePane()` and only
   touches the DOM for the tab currently visible.
 - **Untrusted strings go through `textContent`, never `innerHTML`.** Process and
   GPU names come from outside the app.
+- **Static markup carries `data-i18n`; dynamic text calls `t()`.** Cards built
+  from an `innerHTML` template keep `data-i18n` in the template and call
+  `applyStatic(node)` after insertion, so there is only one translation path.
+
+Two checks guard the translations, and they cover different halves. `en.ts` is
+declared `Record<Keys, string>` against the Chinese pack, so a missing English
+string is a *compile* error. But `data-i18n` values and `t("…")` arguments are
+plain strings the type system cannot see — `scripts/check-i18n.mjs` reconciles
+those against the packs and also reports keys nothing references. Both run in CI.
 
 ## Sensor bridge (`sensor-bridge/`)
 
@@ -127,7 +149,7 @@ makes exported files unopenable from Explorer even though writing them succeeds.
 
 ## Testing
 
-- `cargo test` — 25 pure-logic tests (parsing, statistics, schema, escaping)
+- `cargo test` — 29 pure-logic tests (parsing, statistics, schema, escaping, i18n)
 - `cargo test -- --include-ignored` — plus 8 that need real hardware
 - `scripts/smoke-test.ps1` — post-build check that the app actually works:
   process survives, WebView2 children exist, UI thread responds, panel renders

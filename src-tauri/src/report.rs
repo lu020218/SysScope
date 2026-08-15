@@ -1,3 +1,4 @@
+use crate::i18n::{tr, tr_fmt, Lang};
 use chrono::{DateTime, Local};
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -45,6 +46,7 @@ pub fn export(
     session_id: i64,
     format: &str,
     out_dir: &Path,
+    lang: Lang,
 ) -> Result<String, String> {
     let info = conn
         .query_row(
@@ -58,11 +60,13 @@ pub fn export(
                 })
             },
         )
-        .map_err(|_| format!("会话 {session_id} 不存在"))?;
+        .map_err(|_| {
+            tr_fmt(lang, "report.err.noSession", &[("id", &session_id.to_string())])
+        })?;
 
     let rows = load_rows(conn, session_id)?;
     if rows.is_empty() {
-        return Err("该会话没有采样数据".into());
+        return Err(tr(lang, "report.err.noData").into());
     }
 
     let ext = match format {
@@ -70,7 +74,7 @@ pub fn export(
         "csv" => "csv",
         "json" => "json",
         "md" => "md",
-        other => return Err(format!("未知格式: {other}")),
+        other => return Err(tr_fmt(lang, "report.err.badFormat", &[("fmt", other)])),
     };
     let file_name = format!(
         "session{}_{}.{ext}",
@@ -80,10 +84,12 @@ pub fn export(
     let out_path = out_dir.join(file_name);
 
     let content = match format {
-        "html" => render_html(&info, &rows),
+        "html" => render_html(&info, &rows, lang),
+        // CSV/JSON 的列名与字段名保持英文不变：它们是给 Excel、pandas、脚本
+        // 消费的，翻译只会破坏下游解析
         "csv" => render_csv(&rows),
         "json" => render_json(&info, &rows)?,
-        "md" => render_md(&info, &rows),
+        "md" => render_md(&info, &rows, lang),
         _ => unreachable!(),
     };
     std::fs::write(&out_path, content).map_err(|e| e.to_string())?;
@@ -188,51 +194,61 @@ fn fmt_ts_file(ms: u64) -> String {
         .unwrap_or_default()
 }
 
-fn fmt_duration(info: &SessionInfo, rows: &[Row]) -> String {
+fn fmt_duration(info: &SessionInfo, rows: &[Row], lang: Lang) -> String {
     let end = info
         .ended_at
         .unwrap_or_else(|| rows.last().map(|r| r.ts).unwrap_or(info.started_at));
     let secs = end.saturating_sub(info.started_at) / 1000;
-    format!("{}时{}分{}秒", secs / 3600, secs % 3600 / 60, secs % 60)
+    tr_fmt(
+        lang,
+        "report.duration",
+        &[
+            ("h", &(secs / 3600).to_string()),
+            ("m", &(secs % 3600 / 60).to_string()),
+            ("s", &(secs % 60).to_string()),
+        ],
+    )
 }
 
 /// 统计行集合：(名称, 单位, 统计值)
-fn stat_rows(rows: &[Row]) -> Vec<(&'static str, &'static str, Option<Stats>)> {
+fn stat_rows(rows: &[Row], lang: Lang) -> Vec<(&'static str, &'static str, Option<Stats>)> {
+    let n = |key| tr(lang, key);
     vec![
-        ("CPU 占用", "%", stats(rows.iter().map(|r| r.cpu_total))),
-        ("CPU 温度", "°C", stats(rows.iter().map(|r| r.cpu_temp))),
-        ("CPU 功耗", "W", stats(rows.iter().map(|r| r.cpu_power))),
-        ("内存占用", "%", stats(rows.iter().map(mem_pct))),
-        ("GPU 占用", "%", stats(rows.iter().map(|r| r.gpu_util))),
-        ("GPU 温度", "°C", stats(rows.iter().map(|r| r.gpu_temp))),
-        ("GPU 功耗", "W", stats(rows.iter().map(|r| r.gpu_power))),
+        (n("report.metric.cpuUtil"), "%", stats(rows.iter().map(|r| r.cpu_total))),
+        (n("report.metric.cpuTemp"), "°C", stats(rows.iter().map(|r| r.cpu_temp))),
+        (n("report.metric.cpuPower"), "W", stats(rows.iter().map(|r| r.cpu_power))),
+        (n("report.metric.memUtil"), "%", stats(rows.iter().map(mem_pct))),
+        (n("report.metric.gpuUtil"), "%", stats(rows.iter().map(|r| r.gpu_util))),
+        (n("report.metric.gpuTemp"), "°C", stats(rows.iter().map(|r| r.gpu_temp))),
+        (n("report.metric.gpuPower"), "W", stats(rows.iter().map(|r| r.gpu_power))),
+        // FPS 三项是通用术语，两种语言下写法一致
         ("FPS", "", stats(rows.iter().map(|r| r.fps))),
         ("FPS 1% Low", "", stats(rows.iter().map(|r| r.low1))),
         ("FPS 0.1% Low", "", stats(rows.iter().map(|r| r.low01))),
-        ("帧时间", "ms", stats(rows.iter().map(|r| r.frame_time))),
+        (n("report.metric.frameTime"), "ms", stats(rows.iter().map(|r| r.frame_time))),
         (
-            "卡顿次数/5s",
+            n("report.metric.stutters"),
             "",
             stats(rows.iter().map(|r| r.stutters.map(|v| v as f64))),
         ),
         (
-            "磁盘读取",
+            n("report.metric.diskRead"),
             "MB/s",
             stats(rows.iter().map(|r| r.disk_read.map(|v| v / 1048576.0))),
         ),
         (
-            "磁盘写入",
+            n("report.metric.diskWrite"),
             "MB/s",
             stats(rows.iter().map(|r| r.disk_write.map(|v| v / 1048576.0))),
         ),
-        ("磁盘活动", "%", stats(rows.iter().map(|r| r.disk_active))),
+        (n("report.metric.diskActive"), "%", stats(rows.iter().map(|r| r.disk_active))),
         (
-            "下载速率",
+            n("report.metric.netDown"),
             "MB/s",
             stats(rows.iter().map(|r| r.net_down.map(|v| v / 1048576.0))),
         ),
         (
-            "上传速率",
+            n("report.metric.netUp"),
             "MB/s",
             stats(rows.iter().map(|r| r.net_up.map(|v| v / 1048576.0))),
         ),
@@ -240,13 +256,13 @@ fn stat_rows(rows: &[Row]) -> Vec<(&'static str, &'static str, Option<Stats>)> {
 }
 
 /// 阈值超限行集合：(条件描述, 超限占比)
-fn threshold_rows(rows: &[Row]) -> Vec<(&'static str, f64)> {
+fn threshold_rows(rows: &[Row], lang: Lang) -> Vec<(&'static str, f64)> {
     vec![
-        ("CPU 占用 ≥ 90%", exceed_pct(rows, |r| r.cpu_total, 90.0)),
-        ("CPU 温度 ≥ 95°C", exceed_pct(rows, |r| r.cpu_temp, 95.0)),
-        ("内存占用 ≥ 90%", exceed_pct(rows, mem_pct, 90.0)),
-        ("GPU 占用 ≥ 90%", exceed_pct(rows, |r| r.gpu_util, 90.0)),
-        ("GPU 温度 ≥ 85°C", exceed_pct(rows, |r| r.gpu_temp, 85.0)),
+        (tr(lang, "report.th.cpuUtil"), exceed_pct(rows, |r| r.cpu_total, 90.0)),
+        (tr(lang, "report.th.cpuTemp"), exceed_pct(rows, |r| r.cpu_temp, 95.0)),
+        (tr(lang, "report.th.memUtil"), exceed_pct(rows, mem_pct, 90.0)),
+        (tr(lang, "report.th.gpuUtil"), exceed_pct(rows, |r| r.gpu_util, 90.0)),
+        (tr(lang, "report.th.gpuTemp"), exceed_pct(rows, |r| r.gpu_temp, 85.0)),
     ]
 }
 
@@ -306,14 +322,17 @@ fn render_json(info: &SessionInfo, rows: &[Row]) -> Result<String, String> {
     serde_json::to_string_pretty(&v).map_err(|e| e.to_string())
 }
 
-fn render_md(info: &SessionInfo, rows: &[Row]) -> String {
+fn render_md(info: &SessionInfo, rows: &[Row], lang: Lang) -> String {
     let mut out = format!(
-        "# SysScope 监控报告 — 会话 #{}\n\n\
-         - 开始时间：{}\n- 结束时间：{}\n- 时长：{}\n- 采样点数：{}\n",
-        info.id,
+        "# {}\n\n- {}: {}\n- {}: {}\n- {}: {}\n- {}: {}\n",
+        tr_fmt(lang, "report.title", &[("id", &info.id.to_string())]),
+        tr(lang, "report.meta.start"),
         fmt_ts(info.started_at),
+        tr(lang, "report.meta.end"),
         info.ended_at.map(fmt_ts).unwrap_or_else(|| "—".into()),
-        fmt_duration(info, rows),
+        tr(lang, "report.meta.duration"),
+        fmt_duration(info, rows, lang),
+        tr(lang, "report.meta.samples"),
         rows.len(),
     );
     let procs: Vec<String> = {
@@ -328,11 +347,22 @@ fn render_md(info: &SessionInfo, rows: &[Row]) -> String {
         seen
     };
     if !procs.is_empty() {
-        out.push_str(&format!("- FPS 监控进程：{}\n", procs.join("、")));
+        out.push_str(&format!(
+            "- {}: {}\n",
+            tr(lang, "report.fpsProcs"),
+            procs.join(", ")
+        ));
     }
 
-    out.push_str("\n## 统计摘要\n\n| 指标 | 平均 | 峰值 | 最低 |\n|---|---|---|---|\n");
-    for (name, unit, st) in stat_rows(rows) {
+    out.push_str(&format!(
+        "\n## {}\n\n| {} | {} | {} | {} |\n|---|---|---|---|\n",
+        tr(lang, "report.statsHeading"),
+        tr(lang, "report.col.metric"),
+        tr(lang, "report.col.avg"),
+        tr(lang, "report.col.max"),
+        tr(lang, "report.col.min"),
+    ));
+    for (name, unit, st) in stat_rows(rows, lang) {
         match st {
             Some(s) => out.push_str(&format!(
                 "| {name} | {:.1}{unit} | {:.1}{unit} | {:.1}{unit} |\n",
@@ -342,14 +372,19 @@ fn render_md(info: &SessionInfo, rows: &[Row]) -> String {
         }
     }
 
-    out.push_str("\n## 阈值超限\n\n| 条件 | 超限采样占比 |\n|---|---|\n");
-    for (name, pct) in threshold_rows(rows) {
+    out.push_str(&format!(
+        "\n## {}\n\n| {} | {} |\n|---|---|\n",
+        tr(lang, "report.threshHeading"),
+        tr(lang, "report.col.condition"),
+        tr(lang, "report.col.exceed"),
+    ));
+    for (name, pct) in threshold_rows(rows, lang) {
         out.push_str(&format!("| {name} | {pct:.1}% |\n"));
     }
     out
 }
 
-fn render_html(info: &SessionInfo, rows: &[Row]) -> String {
+fn render_html(info: &SessionInfo, rows: &[Row], lang: Lang) -> String {
     let data = serde_json::json!({
         "ts": rows.iter().map(|r| r.ts / 1000).collect::<Vec<_>>(),
         "cpu": rows.iter().map(|r| r.cpu_total).collect::<Vec<_>>(),
@@ -371,7 +406,7 @@ fn render_html(info: &SessionInfo, rows: &[Row]) -> String {
     });
 
     let mut stats_html = String::new();
-    for (name, unit, st) in stat_rows(rows) {
+    for (name, unit, st) in stat_rows(rows, lang) {
         match st {
             Some(s) => stats_html.push_str(&format!(
                 "<tr><td>{name}</td><td>{:.1}{unit}</td><td>{:.1}{unit}</td><td>{:.1}{unit}</td></tr>",
@@ -383,29 +418,67 @@ fn render_html(info: &SessionInfo, rows: &[Row]) -> String {
     }
 
     let mut thresh_html = String::new();
-    for (name, pct) in threshold_rows(rows) {
+    for (name, pct) in threshold_rows(rows, lang) {
         let cls = if pct > 0.0 { " class=\"bad\"" } else { "" };
         thresh_html.push_str(&format!("<tr><td>{name}</td><td{cls}>{pct:.1}%</td></tr>"));
     }
 
     let meta_html = format!(
-        "<span>开始 <b>{}</b></span><span>结束 <b>{}</b></span>\
-         <span>时长 <b>{}</b></span><span>采样 <b>{}</b></span>",
+        "<span>{} <b>{}</b></span><span>{} <b>{}</b></span>\
+         <span>{} <b>{}</b></span><span>{} <b>{}</b></span>",
+        tr(lang, "report.meta.start"),
         fmt_ts(info.started_at),
+        tr(lang, "report.meta.end"),
         info.ended_at.map(fmt_ts).unwrap_or_else(|| "—".into()),
-        fmt_duration(info, rows),
+        tr(lang, "report.meta.duration"),
+        fmt_duration(info, rows, lang),
+        tr(lang, "report.meta.samples"),
         rows.len(),
     );
 
-    HTML_TEMPLATE
-        .replace("__TITLE__", &format!("SysScope 报告 — 会话 #{}", info.id))
+    let mut html = HTML_TEMPLATE
+        .replace(
+            "__TITLE__",
+            &tr_fmt(lang, "report.title", &[("id", &info.id.to_string())]),
+        )
         .replace("__META__", &meta_html)
         .replace("__STATS__", &stats_html)
         .replace("__THRESH__", &thresh_html)
         .replace("__UPLOT_CSS__", UPLOT_CSS)
         .replace("__UPLOT_JS__", UPLOT_JS)
-        .replace("__DATA__", &escape_json_for_script(data.to_string()))
+        .replace("__DATA__", &escape_json_for_script(data.to_string()));
+    for (token, key) in TEMPLATE_STRINGS {
+        html = html.replace(token, tr(lang, key));
+    }
+    html
 }
+
+/// 模板中的固定文案占位符 → i18n key。部分值会落进 <script> 里的 JS 字符串
+/// 字面量，i18n 的 report_strings_are_safe_to_embed 测试保证它们不含引号或尖括号。
+const TEMPLATE_STRINGS: &[(&str, &str)] = &[
+    ("__T_LANGCODE__", "report.langCode"),
+    ("__T_PRINT__", "report.print"),
+    ("__T_STATS_H__", "report.statsHeading"),
+    ("__T_THRESH_H__", "report.threshHeading"),
+    ("__T_CHARTS_H__", "report.chartsHeading"),
+    ("__T_COL_METRIC__", "report.col.metric"),
+    ("__T_COL_AVG__", "report.col.avg"),
+    ("__T_COL_MAX__", "report.col.max"),
+    ("__T_COL_MIN__", "report.col.min"),
+    ("__T_COL_COND__", "report.col.condition"),
+    ("__T_COL_EXCEED__", "report.col.exceed"),
+    ("__T_CHART_UTIL__", "report.chart.util"),
+    ("__T_CHART_TEMP__", "report.chart.temp"),
+    ("__T_CHART_NET__", "report.chart.net"),
+    ("__T_CHART_DISK__", "report.chart.disk"),
+    ("__T_CHART_POWER__", "report.chart.power"),
+    ("__T_L_MEM__", "report.label.mem"),
+    ("__T_L_VRAM__", "report.label.vram"),
+    ("__T_L_DOWN__", "report.label.down"),
+    ("__T_L_UP__", "report.label.up"),
+    ("__T_L_READ__", "report.label.read"),
+    ("__T_L_WRITE__", "report.label.write"),
+];
 
 /// 嵌入 <script> 块前转义 JSON 中的 `<`，防止字符串值（如进程名）
 /// 包含 </script> 逃逸出脚本块。JSON 语法本身不含 `<`，
@@ -416,8 +489,9 @@ fn escape_json_for_script(json: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::recorder::tests::make_test_db;
+    use crate::i18n::Lang;
     use crate::recorder::open_db;
+    use crate::recorder::tests::make_test_db;
 
     #[test]
     fn export_all_formats() {
@@ -427,29 +501,48 @@ mod tests {
         let (db_path, sid) = make_test_db(&dir);
         let conn = open_db(&db_path).unwrap();
 
-        for (fmt, marker) in [
-            ("html", "SysScope 报告"),
-            ("csv", "cpu_total"),
-            ("json", "\"samples\""),
-            ("md", "## 统计摘要"),
+        for (lang, fmt, marker) in [
+            (Lang::ZhCn, "html", "SysScope 报告"),
+            (Lang::En, "html", "SysScope report"),
+            // CSV/JSON 不随语言变化：列名与字段名是给下游程序消费的
+            (Lang::ZhCn, "csv", "cpu_total"),
+            (Lang::En, "csv", "cpu_total"),
+            (Lang::ZhCn, "json", "\"samples\""),
+            (Lang::En, "json", "\"samples\""),
+            (Lang::ZhCn, "md", "## 统计摘要"),
+            (Lang::En, "md", "## Summary"),
         ] {
-            let path = super::export(&conn, sid, fmt, &dir).unwrap();
+            let path = super::export(&conn, sid, fmt, &dir, lang).unwrap();
             let content = std::fs::read_to_string(&path).unwrap();
             assert!(
                 content.contains(marker),
-                "{fmt} report missing marker {marker}"
+                "{fmt}/{lang:?} report missing marker {marker}"
             );
         }
 
+        // 英文报告不得残留未替换的占位符或中文
+        let en_html =
+            std::fs::read_to_string(super::export(&conn, sid, "html", &dir, Lang::En).unwrap())
+                .unwrap();
+        assert!(!en_html.contains("__T_"), "unreplaced template placeholder");
+        for zh in ["统计摘要", "阈值超限", "历史曲线", "打印", "内存", "显存"] {
+            assert!(!en_html.contains(zh), "English report still contains {zh}");
+        }
+
         // HTML 报告应自包含（内嵌 uPlot 与数据）
-        let html = std::fs::read_to_string(super::export(&conn, sid, "html", &dir).unwrap()).unwrap();
+        let html =
+            std::fs::read_to_string(super::export(&conn, sid, "html", &dir, Lang::ZhCn).unwrap())
+                .unwrap();
         assert!(html.contains("uPlot"), "uPlot not embedded");
         assert!(html.contains("\"cpu\""), "data not embedded");
         assert!(!html.contains("http://") || html.contains("http://www.w3.org"), "external refs");
 
-        // 未知格式与空会话报错
-        assert!(super::export(&conn, sid, "pdf", &dir).is_err());
-        assert!(super::export(&conn, 9999, "html", &dir).is_err());
+        // 未知格式与空会话报错，且错误文案跟随语言
+        let err = super::export(&conn, sid, "pdf", &dir, Lang::En).unwrap_err();
+        assert_eq!(err, "Unknown format: pdf");
+        let err = super::export(&conn, 9999, "html", &dir, Lang::En).unwrap_err();
+        assert_eq!(err, "Session 9999 does not exist");
+        assert!(super::export(&conn, 9999, "html", &dir, Lang::ZhCn).is_err());
     }
 
     /// 恶意进程名不得逃逸出 HTML 报告的 <script> 数据块
@@ -467,7 +560,7 @@ mod tests {
         )
         .unwrap();
 
-        let path = super::export(&conn, sid, "html", &dir).unwrap();
+        let path = super::export(&conn, sid, "html", &dir, Lang::ZhCn).unwrap();
         let html = std::fs::read_to_string(path).unwrap();
         assert!(
             !html.contains("</script><script>alert"),

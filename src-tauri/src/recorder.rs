@@ -313,10 +313,18 @@ pub fn export_report(
     reports: State<ReportsDir>,
     session_id: i64,
     format: String,
+    // lang：前端当前界面语言。报告是会分享出去的产物，跟随导出者的语言
+    lang: String,
 ) -> Result<String, String> {
     let conn = open_db(&db.0).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&reports.0).map_err(|e| e.to_string())?;
-    crate::report::export(&conn, session_id, &format, &reports.0)
+    crate::report::export(
+        &conn,
+        session_id,
+        &format,
+        &reports.0,
+        crate::i18n::Lang::parse(&lang),
+    )
 }
 
 /// 一次性迁移：把旧 AppData/reports 下的报告复制到新的文档目录。
@@ -452,7 +460,8 @@ pub mod tests {
             )
             .unwrap();
         assert!(ended.is_some(), "ended_at must be set after stop");
-        let report = crate::report::export(&conn, sid, "html", &dir);
+        let report =
+            crate::report::export(&conn, sid, "html", &dir, crate::i18n::Lang::ZhCn);
         assert!(report.is_ok(), "export failed: {report:?}");
     }
 

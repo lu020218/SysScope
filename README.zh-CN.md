@@ -59,6 +59,10 @@ CPU/GPU/内存/网络。帧数据来自 ETW（DXGI/D3D9 呈现事件），与 Pr
 - WebView2 运行时 —— Windows 11 及较新的 Windows 10 已内置
 - NVIDIA 显卡可获得完整指标（通过 NVML）；AMD / Intel 显卡回退到占用率与显存
 
+界面提供简体中文与英文两种语言，首次启动跟随 Windows 显示语言，可在
+「设置 → 界面语言」中切换。导出的报告使用导出时的界面语言；CSV 与 JSON
+的列名和字段名固定为英文，以免影响下游脚本解析。
+
 报告导出到 `文档\SysScope\reports`。
 
 ---
@@ -88,8 +92,9 @@ cd sensor-bridge && dotnet publish -c Release -r win-x64
 ### 测试
 
 ```bash
-cd src-tauri && cargo test                        # 25 项纯逻辑测试，CI 可跑
+cd src-tauri && cargo test                        # 29 项纯逻辑测试，CI 可跑
 cd src-tauri && cargo test -- --include-ignored   # 追加 8 项需真实硬件的测试
+node scripts/check-i18n.mjs                       # 校验翻译 key 是否齐整
 ```
 
 硬件层标注了 `#[ignore]`，因为它需要管理员权限、GPU 和活动桌面会话。

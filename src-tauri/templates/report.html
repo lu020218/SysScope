@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="__T_LANGCODE__">
 <head>
 <meta charset="UTF-8" />
 <title>__TITLE__</title>
@@ -47,27 +47,27 @@ td.bad { color: #f87171; font-weight: 600; }
 <body>
 <h1>__TITLE__</h1>
 <div class="meta">__META__</div>
-<div class="toolbar"><button onclick="window.print()">打印 / 另存为 PDF</button></div>
+<div class="toolbar"><button onclick="window.print()">__T_PRINT__</button></div>
 
-<h2>统计摘要</h2>
+<h2>__T_STATS_H__</h2>
 <table>
-  <thead><tr><th>指标</th><th>平均</th><th>峰值</th><th>最低</th></tr></thead>
+  <thead><tr><th>__T_COL_METRIC__</th><th>__T_COL_AVG__</th><th>__T_COL_MAX__</th><th>__T_COL_MIN__</th></tr></thead>
   <tbody>__STATS__</tbody>
 </table>
 
-<h2>阈值超限</h2>
+<h2>__T_THRESH_H__</h2>
 <table>
-  <thead><tr><th>条件</th><th>超限采样占比</th></tr></thead>
+  <thead><tr><th>__T_COL_COND__</th><th>__T_COL_EXCEED__</th></tr></thead>
   <tbody>__THRESH__</tbody>
 </table>
 
-<h2>历史曲线</h2>
-<div class="chart-box"><h3>占用率（%）</h3><div id="c-util"></div></div>
-<div class="chart-box"><h3>温度（°C）</h3><div id="c-temp"></div></div>
+<h2>__T_CHARTS_H__</h2>
+<div class="chart-box"><h3>__T_CHART_UTIL__</h3><div id="c-util"></div></div>
+<div class="chart-box"><h3>__T_CHART_TEMP__</h3><div id="c-temp"></div></div>
 <div class="chart-box"><h3>FPS</h3><div id="c-fps"></div></div>
-<div class="chart-box"><h3>网络（MB/s）</h3><div id="c-net"></div></div>
-<div class="chart-box"><h3>磁盘（MB/s）</h3><div id="c-disk"></div></div>
-<div class="chart-box"><h3>功耗（W）</h3><div id="c-power"></div></div>
+<div class="chart-box"><h3>__T_CHART_NET__</h3><div id="c-net"></div></div>
+<div class="chart-box"><h3>__T_CHART_DISK__</h3><div id="c-disk"></div></div>
+<div class="chart-box"><h3>__T_CHART_POWER__</h3><div id="c-power"></div></div>
 
 <script>__UPLOT_JS__</script>
 <script>
@@ -91,11 +91,13 @@ function mk(elId, seriesDefs, data, yFmt) {
   };
   charts.push([new uPlot(opts, data, el), el]);
 }
+// 下列占位符由 report.rs 从 i18n 表替换；i18n 的测试保证这些值不含引号与
+// 尖括号，因此可以安全地嵌进 JS 字符串字面量
 mk("c-util", [
   { label: "CPU", color: "#38bdf8" },
-  { label: "内存", color: "#34d399" },
+  { label: "__T_L_MEM__", color: "#34d399" },
   { label: "GPU", color: "#c084fc" },
-  { label: "显存", color: "#facc15", dash: [4, 4] },
+  { label: "__T_L_VRAM__", color: "#facc15", dash: [4, 4] },
 ], [D.ts, D.cpu, D.memPct, D.gpu, D.vramPct], v => v + "%");
 mk("c-temp", [
   { label: "CPU", color: "#38bdf8" },
@@ -103,12 +105,12 @@ mk("c-temp", [
 ], [D.ts, D.cpuTemp, D.gpuTemp], v => v + "°");
 mk("c-fps", [{ label: "FPS", color: "#fb923c" }], [D.ts, D.fps]);
 mk("c-net", [
-  { label: "下载", color: "#60a5fa" },
-  { label: "上传", color: "#f472b6", dash: [4, 4] },
+  { label: "__T_L_DOWN__", color: "#60a5fa" },
+  { label: "__T_L_UP__", color: "#f472b6", dash: [4, 4] },
 ], [D.ts, D.netDown, D.netUp]);
 mk("c-disk", [
-  { label: "读取", color: "#34d399" },
-  { label: "写入", color: "#f87171", dash: [4, 4] },
+  { label: "__T_L_READ__", color: "#34d399" },
+  { label: "__T_L_WRITE__", color: "#f87171", dash: [4, 4] },
 ], [D.ts, D.diskRead, D.diskWrite]);
 mk("c-power", [
   { label: "CPU", color: "#38bdf8" },

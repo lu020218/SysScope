@@ -49,7 +49,8 @@ Download the `.msi` below. Windows 10/11 x64.
 - Reports are written to `Documents\SysScope\reports`.
 - Full GPU telemetry needs an NVIDIA card; AMD/Intel GPUs report load and VRAM.
 - SSD SMART data may be hidden by Intel RST/VMD.
-- UI language is Simplified Chinese.
+- The UI is available in English and Simplified Chinese, following your Windows
+  display language by default (Settings → Language to change it).
 
 ## Notes
 
