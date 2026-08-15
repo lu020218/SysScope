@@ -1,0 +1,58 @@
+SysScope
+Copyright (c) 2026 lu020218
+
+This product includes third-party software listed below. SysScope itself is
+released under the MIT License (see LICENSE).
+
+================================================================================
+LibreHardwareMonitorLib — Mozilla Public License 2.0 (MPL-2.0)
+https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+================================================================================
+
+SysScope ships a native DLL (`src-tauri/resources/sysscope_sensors.dll`) that is
+compiled from `sensor-bridge/` and statically links LibreHardwareMonitorLib via
+.NET NativeAOT. It is used to read CPU/GPU temperatures, CPU package power, per-
+core clocks, core voltage and storage SMART data.
+
+MPL-2.0 is a file-level copyleft license. The source of the bridge that consumes
+it is in this repository under `sensor-bridge/`. If you modify
+LibreHardwareMonitorLib itself, you must make those modified files available
+under MPL-2.0. A copy of the license is available at:
+https://www.mozilla.org/en-US/MPL/2.0/
+
+Note: reading low-level sensors requires a kernel driver that this library loads
+at runtime; this is why SysScope requests administrator privileges.
+
+================================================================================
+Rust crates (see src-tauri/Cargo.toml for the full dependency tree)
+================================================================================
+
+tauri, tauri-build, tauri-plugin-single-instance ....... MIT OR Apache-2.0
+serde, serde_json ...................................... MIT OR Apache-2.0
+sysinfo ................................................ MIT
+nvml-wrapper ........................................... MIT OR Apache-2.0
+wmi .................................................... MIT
+ferrisetw .............................................. MIT OR Apache-2.0
+libloading ............................................. ISC
+rusqlite (bundled SQLite) .............................. MIT (SQLite: public domain)
+chrono ................................................. MIT OR Apache-2.0
+windows, windows-core, webview2-com ..................... MIT OR Apache-2.0
+
+Run `cargo license` or `cargo about` in `src-tauri/` for an exhaustive,
+machine-generated listing of every transitive dependency.
+
+================================================================================
+Frontend
+================================================================================
+
+uPlot .................................................. MIT
+https://github.com/leeoniya/uPlot
+
+@tauri-apps/api ........................................ MIT OR Apache-2.0
+
+================================================================================
+Runtime components (not redistributed, required on the target machine)
+================================================================================
+
+Microsoft Edge WebView2 Runtime ......... Microsoft software license terms
+NVIDIA Management Library (NVML) ........ shipped with the NVIDIA driver

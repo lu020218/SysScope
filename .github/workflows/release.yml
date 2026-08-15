@@ -1,0 +1,42 @@
+name: Release
+
+# Publishes a GitHub Release with the MSI whenever a version tag is pushed:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build release bundle
+        run: npm run tauri build -- --bundles msi
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: src-tauri/target/release/bundle/msi/*.msi
+          body_path: docs/RELEASE_NOTES.md
+          draft: true
+          generate_release_notes: false

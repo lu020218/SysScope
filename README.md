@@ -1,110 +1,151 @@
 # SysScope
 
-Windows 桌面系统状态实时监控工具（Rust + Tauri）。
+**A professional-grade system monitor for Windows — deep hardware metrics, a game overlay, and exportable reports.**
 
-实时监控 CPU、GPU、内存、FPS 等关键指标，支持会话记录与监控报告导出。
-完整需求见 [REQUIREMENTS.md](REQUIREMENTS.md)。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078d4)](#requirements)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri%202-orange)](https://tauri.app)
 
-## 当前进度
+[简体中文](README.zh-CN.md)
 
-- [x] M1 骨架：Tauri 应用框架 + CPU / 内存实时采集与曲线展示
-- [x] M2 GPU：NVML + WMI 双路 GPU 指标接入（占用 / 显存 / 温度 / 功耗）
-- [x] M3 FPS：ETW 帧率采集（DXGI/D3D9 Present）+ 前台窗口自动跟踪，需管理员权限
-- [x] 网络监控：各接口上/下行速率 + 累计流量（过滤回环与 Npcap 镜像接口）
-- [x] FPS 悬浮窗（OSD）：无边框置顶小窗展示 FPS + CPU/GPU/内存简略值，可拖动、可开关
-- [x] CPU 温度：LibreHardwareMonitor 经 NativeAOT 编译为原生 DLL，Rust FFI 进程内调用（需管理员权限）
-- [x] M4 记录与报告：会话记录、SQLite 落盘、HTML/CSV/JSON/Markdown 报告导出
-- [x] M5 打磨：托盘常驻（关闭到托盘）、`--minimized` 静默启动、置顶/紧凑模式、
-      设置面板（告警阈值配置）、WMI 虚拟适配器过滤
-- [x] 专业化一批：磁盘 I/O（活动率/读写速率/队列/分区空间/盘温）、CPU 功耗与热节流标注、
-      GPU 频率/风扇/功耗墙、FPS 0.1% Low + P95/P99 + 卡顿计数、CPU/内存 Top-5 进程；
-      录制与报告同步扩展（库表 v2 幂等迁移）
-- [x] 专业化二批：提交内存 + 硬页错误率（WMI PerfOS）、ICMP 延迟探测（RTT/抖动/丢包，
-      目标可配置）、每进程网络流量 Top-5（ETW Kernel-Network）；
-      ETW 会话名加 PID 后缀（多实例/测试并存互不干扰，启动时清理孤儿会话）
-- [x] CPU 深化：每核频率与核心电压（LHM）、P/E 核分组利用率（拓扑 API）、
-      有效频率与 C1-C3 驻留（性能计数器）、峰值功耗/睿频状态/频率会话统计；
-      CPU 卡片改为四标签页（概览/核心/频率/电源）
-- [x] GPU 深化：显存控制器负载、编解码引擎负载、PCIe 吞吐（低频采样）、
-      硬件级热节流/功耗墙标志（NVML throttle reasons）、降频阈值温度、
-      Hotspot/风扇 RPM/显存温度（LHM/NVAPI）；GPU 卡片双标签页 + 节流脉冲徽章
-- [x] 内存深化：已缓存/备用/已修改页列表、总页错误率、内存压缩（MemCompression
-      工作集）、提交占比、内存频率与条数（Win32_PhysicalMemory）、理论带宽推算；
-      内存卡片双标签页
-- [x] 磁盘深化：读写 IOPS、平均响应时间（PerfRawData 差分，规避格式化计数器
-      整数截断）、队列展示、SSD 健康/累计写入 TBW/控制器温度（LHM SMART，
-      受 Intel RST 拦截时显示 N/A 并提示）；磁盘卡片双标签页
-- [x] 网络深化：TCP 连接分状态计数（已建立/TIME_WAIT/监听）、UDP 端点数
-      （IpHelper 连接表）、TCP 重传率（Tcpip 计数器）、各网卡链路速率与
-      利用率（NetworkInterface）；网络卡片双标签页
-- [x] 进程深化：Top 列表增磁盘 I/O 列（sysinfo disk_usage）与 GPU/显存列
-      （WMI per-PID 计数器 2s 缓存）；点击进程行弹详情面板——累计 CPU 时间、
-      线程/句柄数、工作集/峰值、私有提交、页错误、优先级、CPU 亲和性位图
-- [x] 无边框主窗口：自绘标题栏（顶栏即拖动区，双击最大化），Fluent 风格
-      最小化/最大化/关闭三键（关闭走托盘），窗口边缘保留原生拖拽缩放
+![SysScope dashboard](docs/images/dashboard.png)
 
-## 开发
+SysScope watches six subsystems — CPU, GPU, memory, disk, network and processes —
+and shows each of them at two levels: a live chart at a glance, and a detail tab
+with the numbers you actually need when something is wrong (thermal throttling,
+power limits, queue depth, retransmits, per-process GPU usage…).
 
-依赖：Rust（MSVC）、Node.js 20+
+It samples in **~20 ms per tick**, so even the 0.5 s interval costs a few percent
+of one core.
+
+---
+
+## Highlights
+
+**Depth, not just gauges.** Most lightweight monitors stop at "CPU 42%".
+SysScope also tells you *why*: package power and per-core clocks, whether the CPU
+is thermally throttling, whether the GPU hit its power limit, if the disk queue is
+backing up, or if memory pressure is causing hard page faults.
+
+| Subsystem | What you get |
+|---|---|
+| **CPU** | Total & per-core load, P/E-core grouping, package power, core voltage, per-core clocks, effective clock, C-state residency, boost state, thermal-throttle flag |
+| **GPU** | Load, VRAM, core/memory clocks, temperature + hotspot + VRAM temp, power vs. power limit, fan %/RPM, memory-controller load, encode/decode engines, PCIe throughput, **hardware throttle reasons** |
+| **Memory** | Used/available/cached, standby & modified page lists, commit charge and ratio, hard & soft page-fault rates, memory compression, DIMM speed and theoretical bandwidth |
+| **Disk** | Per-drive read/write throughput, IOPS, **sub-millisecond response times**, queue length, free space, SSD health / TBW / temperature (SMART) |
+| **Network** | Per-adapter throughput, ICMP latency with jitter and packet loss, TCP connection states, retransmission rate, link utilization |
+| **Processes** | Top 5 by CPU, memory, disk, network **and GPU**; click any row for threads, handles, working set, private bytes, page faults, priority and CPU affinity |
+
+**FPS overlay for games.** A borderless always-on-top strip that follows whatever
+app is in the foreground and shows its frame rate next to CPU/GPU/memory/network.
+Frame data comes from ETW (DXGI/D3D9 present events), the same source PresentMon
+uses — including 1% / 0.1% lows, frame-time percentiles and stutter counts.
+
+![FPS overlay](docs/images/overlay.png)
+
+**Record and report.** Capture a monitoring session to SQLite, then export it as a
+self-contained **HTML report with interactive charts**, raw **CSV/JSON**, or a
+**Markdown** summary with averages, peaks and threshold violations.
+
+---
+
+## Download
+
+Grab the latest installer from the [Releases page](../../releases).
+
+`SysScope_x.y.z_x64_en-US.msi` — about 7 MB.
+
+## Requirements
+
+- Windows 10 or 11, x64
+- **Administrator rights** — the app requests elevation on launch. FPS capture
+  needs an ETW kernel session and temperature readings need a kernel driver;
+  neither works without it. Everything else degrades gracefully.
+- WebView2 runtime — preinstalled on Windows 11 and recent Windows 10
+- NVIDIA GPUs get the full metric set (via NVML). AMD and Intel GPUs fall back to
+  load and VRAM via performance counters.
+
+Reports are written to `Documents\SysScope\reports`.
+
+---
+
+## Building from source
+
+You need [Rust](https://rustup.rs) (MSVC toolchain) and Node.js 20+.
 
 ```bash
 npm install
-npm run tauri dev     # 开发运行
-npm run tauri build   # 发布构建
+npm run tauri dev     # run in development
+npm run tauri build   # produce an installer
 ```
 
-后端测试（两层）：
-
-```bash
-cd src-tauri && cargo test
-```
-
-```bash
-cd src-tauri && cargo test -- --include-ignored
-```
-
-前者为纯逻辑层（CI 可跑）；后者附加 5 个标注 `#[ignore = "hw: …"]` 的
-硬件实测用例（需要管理员 / NVIDIA GPU / 活动桌面）。
-
-发布前冒烟测试（构建后运行，验证程序**真的在工作**而非仅进程存活）：
-
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
-```
-
-默认以资源管理器方式启动（等价于用户双击，最易暴露启动时序问题），
-检查进程存活、窗口与 WebView2 子进程、UI 线程响应、界面已渲染内容、
-采集线程活动；截图输出到 `%TEMP%\sysscope_smoke.png` 供人工复核。
-
-## 结构
-
-前端（Vite + TypeScript + uPlot，`src/`）：
-
-- `main.ts` — 引导与 metrics 分发（~150 行）
-- `types.ts` / `format.ts` / `charts.ts`（含 RingBuffers）/ `tabs.ts` / `thresholds.ts`
-- `cards/{cpu,gpu,mem,disk,net,procs}.ts` — 各卡片独立 build/update
-- `modals/{sessions,settings,procdetail}.ts` — 弹窗
-- `overlay.ts` — FPS 悬浮窗（独立入口）
-
-后端（Rust，`src-tauri/src/`）：
-
-- `sampler.rs` — 采样主循环（目标时刻制节拍 + panic 守护自愈）与 Snapshot 组装
-- `wmi_hub.rs` — 唯一的 WMI 连接与查询原语
-- `disk.rs` / `mem_ext.rs` / `cpu_perf.rs` / `net_ext.rs` / `gpu_proc.rs` — WMI 领域采集器
-- `gpu.rs`（NVML 优先，WMI 兜底）/ `fps.rs`（ETW，需管理员）/ `netproc.rs`（每进程网络）
-- `sensors.rs` — LHM 桥 FFI（温度/功耗/每核频率，加载 sysscope_sensors.dll）
-- `ping.rs` / `procdetail.rs` / `recorder.rs` / `report.rs` / `etw_util.rs`
-- 数据位置：数据库 `%APPDATA%/com.luhaishan.sysscope/sysscope.db`；
-  报告导出到 `文档/SysScope/reports/`（用户易访问、规避 AppData 可能的 EFS 加密）
-- `sensor-bridge/` — C# 桥接层（LibreHardwareMonitor，NativeAOT 编译为原生 DLL）
-
-重建传感器 DLL（需 .NET 9 SDK + VS C++ 工具链）：
+The sensor bridge (`sensor-bridge/`, a NativeAOT-compiled C# DLL wrapping
+LibreHardwareMonitor) is **already committed as a prebuilt DLL**, so changes to
+the Rust or frontend code need no extra toolchain. Rebuild it only if you touch
+the bridge itself — that needs the .NET 9 SDK plus the VS C++ toolchain:
 
 ```bash
 cd sensor-bridge && dotnet publish -c Release -r win-x64
 ```
 
-产物复制到 `src-tauri/resources/sysscope_sensors.dll`（已随仓库提供预编译版本）。
-若报 vswhere/link.exe 找不到，在 VS 开发者命令行中执行，或将
-`C:\Program Files (x86)\Microsoft Visual Studio\Installer` 加入 PATH。
-- `src-tauri/src/lib.rs` — Tauri 应用入口与命令注册
+Copy the output to `src-tauri/resources/sysscope_sensors.dll`. If the linker
+cannot find `vswhere`, run it from a VS Developer Prompt or add
+`C:\Program Files (x86)\Microsoft Visual Studio\Installer` to `PATH`.
+
+### Tests
+
+```bash
+cd src-tauri && cargo test                        # 24 pure-logic tests, CI-safe
+cd src-tauri && cargo test -- --include-ignored   # + 8 tests needing real hardware
+```
+
+The hardware tier is marked `#[ignore]` because it needs admin rights, a GPU and
+a live desktop session.
+
+Before shipping a build, run the smoke test — it verifies the app *works*, not
+merely that a process exists (it has caught real regressions that process checks
+missed):
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
+```
+
+---
+
+## How it works
+
+Collection runs on a single sampling thread that emits one `Snapshot` per tick to
+the frontend. Data comes from whichever API is cheapest and most accurate for
+each metric:
+
+| Source | Used for |
+|---|---|
+| **PDH** performance counters | Disk I/O, memory internals, CPU perf/C-states, TCP & adapter stats, per-process GPU |
+| **NVML** | Full NVIDIA GPU telemetry |
+| **ETW** | Frame times (DXGI/D3D9) and per-process network bytes |
+| **LibreHardwareMonitor** (via a NativeAOT C ABI bridge) | Temperatures, CPU power/voltage, per-core clocks, SMART |
+| **sysinfo / IpHelper / Win32** | Process tables, connection tables, topology |
+
+A note on PDH: an early version queried `Win32_PerfFormattedData_*` over WMI and
+each tick cost **1.7 seconds**, because every one of those queries blocks for an
+internal sampling window. Moving to a single PDH query handle cut a tick to
+**20 ms**. If you are writing a Windows monitor, do not poll formatted WMI
+counters in a loop.
+
+Source layout is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome. If you are reporting a bug, the smoke-test
+output and a screenshot help a lot. Note that most collectors can only be
+verified on real hardware, so please mention your CPU/GPU when a metric looks
+wrong.
+
+## License
+
+[MIT](LICENSE) © lu020218
+
+Third-party components — most importantly LibreHardwareMonitor (MPL-2.0) — are
+listed in [NOTICE](NOTICE).

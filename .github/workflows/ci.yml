@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    # Windows-only project: PDH / ETW / WMI / NVML are all Win32 APIs
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Type-check frontend
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --lib -- -D warnings
+
+      # Only the pure-logic tier runs here. Hardware tests are marked
+      # #[ignore] because they need admin rights, a GPU and a live desktop
+      # session -- none of which a CI runner has.
+      - name: Test (pure-logic tier)
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      - name: Build release bundle
+        run: npm run tauri build -- --bundles msi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sysscope-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
