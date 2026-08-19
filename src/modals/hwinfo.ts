@@ -66,6 +66,8 @@ function renderNav() {
 function renderContent() {
   const wrap = $("hw-content");
   wrap.innerHTML = "";
+  // 从长分类切到短分类时若不复位，会停在上一个分类的滚动位置
+  wrap.scrollTop = 0;
   const groups = data?.[active] ?? [];
   if (groups.length === 0) {
     const empty = document.createElement("div");

@@ -1046,8 +1046,14 @@ body {
 
 /* ---------- 硬件信息弹窗 ---------- */
 
+/* 高度固定：内容量随分类差别很大，若让高度跟随内容，切分类时整个弹窗
+   连同导航和关闭按钮都会跳动。
+   460px 是按本机各分类实测内容高度定的（系统 89、显卡 165、处理器 177、
+   主板 203、存储 235、内存 308、网卡 358），刚好容纳最高的网卡分类；
+   插满内存条或多块硬盘的机器会出现滚动 —— 滚动可以接受，跳动不行。 */
 .hw-box {
   width: min(760px, 92vw);
+  height: min(74vh, 460px);
 }
 
 .hw-body {
@@ -1062,7 +1068,9 @@ body {
   flex-direction: column;
   gap: 2px;
   flex: none;
-  width: 108px;
+  width: 112px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
 }
 
 .hw-nav button {
@@ -1084,6 +1092,7 @@ body {
 .hw-nav button.active {
   color: var(--text);
   background: rgba(56, 189, 248, 0.14);
+  font-weight: 600;
 }
 
 /* 采不到的分类置灰保留，让用户知道是本机没有而不是功能缺失 */
@@ -1099,7 +1108,12 @@ body {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+  /* 预留滚动条宽度，避免长短分类之间切换时内容左右横跳 */
+  scrollbar-gutter: stable;
+  padding-right: 4px;
   font-size: 13px;
+  /* 内容不足一屏时靠上排列，不要垂直居中 */
+  align-content: start;
 }
 
 /* 弹窗里的键值块不需要卡片内那套上下撑满的对齐 */
