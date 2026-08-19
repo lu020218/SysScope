@@ -7,14 +7,30 @@ pub struct WmiHub {
 }
 
 impl WmiHub {
-    /// 必须在采样线程内创建（依赖线程 COM 环境）
+    /// 必须在使用它的线程内创建（依赖线程 COM 环境）
     pub fn new() -> Self {
+        Self::connect(None)
+    }
+
+    /// 连接非默认命名空间。存储相关的 MSFT_* 类不在 root\cimv2 里，
+    /// 而在 root\Microsoft\Windows\Storage。
+    pub fn with_namespace(namespace: &str) -> Self {
+        Self::connect(Some(namespace))
+    }
+
+    fn connect(namespace: Option<&str>) -> Self {
         let conn = COMLibrary::new()
             .or_else(|_| Ok::<_, wmi::WMIError>(unsafe { COMLibrary::assume_initialized() }))
             .ok()
-            .and_then(|com| WMIConnection::new(com).ok());
+            .and_then(|com| match namespace {
+                Some(ns) => WMIConnection::with_namespace_path(ns, com).ok(),
+                None => WMIConnection::new(com).ok(),
+            });
         if conn.is_none() {
-            eprintln!("[sysscope] WMI unavailable, dependent metrics disabled");
+            eprintln!(
+                "[sysscope] WMI unavailable ({}), dependent metrics disabled",
+                namespace.unwrap_or("default namespace")
+            );
         }
         WmiHub { conn }
     }

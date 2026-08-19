@@ -80,6 +80,9 @@ pub struct HwGroup {
 pub struct HwInfo {
     pub cpu: Vec<HwGroup>,
     pub memory: Vec<HwGroup>,
+    pub gpu: Vec<HwGroup>,
+    pub disk: Vec<HwGroup>,
+    pub network: Vec<HwGroup>,
     pub board: Vec<HwGroup>,
     pub system: Vec<HwGroup>,
 }
@@ -122,6 +125,43 @@ struct PhysicalMemory {
 #[serde(rename_all = "PascalCase")]
 struct MemoryArray {
     memory_devices: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename = "Win32_VideoController")]
+#[serde(rename_all = "PascalCase")]
+struct VideoController {
+    name: Option<String>,
+    driver_version: Option<String>,
+    driver_date: Option<wmi::WMIDateTime>,
+    video_processor: Option<String>,
+    adapter_compatibility: Option<String>,
+}
+
+/// 存储命名空间（root\Microsoft\Windows\Storage）。相比 Win32_DiskDrive，
+/// 它能直接给出 SSD/HDD 判定与总线类型，不必从型号字符串猜。
+#[derive(Deserialize)]
+#[serde(rename = "MSFT_PhysicalDisk")]
+#[serde(rename_all = "PascalCase")]
+struct PhysicalDisk {
+    friendly_name: Option<String>,
+    serial_number: Option<String>,
+    firmware_version: Option<String>,
+    size: Option<u64>,
+    media_type: Option<u16>,
+    bus_type: Option<u16>,
+    spindle_speed: Option<u32>,
+    health_status: Option<u16>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename = "Win32_NetworkAdapter")]
+#[serde(rename_all = "PascalCase")]
+struct NetworkAdapter {
+    #[serde(rename = "MACAddress")]
+    mac_address: Option<String>,
+    #[serde(rename = "PNPDeviceID")]
+    pnp_device_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -378,6 +418,310 @@ fn collect_memory(hub: &WmiHub) -> Vec<HwGroup> {
     groups
 }
 
+/// MSFT_PhysicalDisk.MediaType（存储 WMI 提供程序枚举）
+fn media_name(code: u16) -> Option<&'static str> {
+    match code {
+        3 => Some("HDD"),
+        4 => Some("SSD"),
+        5 => Some("SCM"),
+        _ => None,
+    }
+}
+
+/// MSFT_PhysicalDisk.BusType
+fn bus_name(code: u16) -> Option<&'static str> {
+    match code {
+        1 => Some("SCSI"),
+        3 => Some("ATA"),
+        7 => Some("USB"),
+        8 => Some("RAID"),
+        10 => Some("SAS"),
+        11 => Some("SATA"),
+        12 => Some("SD"),
+        13 => Some("MMC"),
+        17 => Some("NVMe"),
+        _ => None,
+    }
+}
+
+fn health_key(code: u16) -> &'static str {
+    match code {
+        0 => "hw.disk.healthy",
+        1 => "hw.disk.warning",
+        _ => "hw.disk.unhealthy",
+    }
+}
+
+fn collect_gpu(hub: &WmiHub) -> Vec<HwGroup> {
+    let controllers = hub.query::<VideoController>().unwrap_or_default();
+    // NVML 只覆盖 N 卡；按索引与 WMI 列表对齐不可靠（核显也在 WMI 列表里），
+    // 因此只用它补充第一块 NVIDIA 设备的信息，并单独成组
+    let nvml = nvml_wrapper::Nvml::init().ok();
+
+    let mut groups: Vec<HwGroup> = controllers
+        .iter()
+        .map(|c| HwGroup {
+            title: c.name.clone().unwrap_or_default(),
+            items: vec![
+                HwItem::new("hw.gpu.vendor", c.adapter_compatibility.clone()),
+                HwItem::new("hw.gpu.chip", c.video_processor.clone()),
+                HwItem::new("hw.gpu.driver", c.driver_version.clone()),
+                HwItem::new(
+                    "hw.gpu.driverDate",
+                    c.driver_date
+                        .as_ref()
+                        .map(|d| d.0.format("%Y-%m-%d").to_string()),
+                ),
+            ],
+        })
+        .collect();
+
+    // 显存容量必须走 NVML/DXGI：Win32_VideoController.AdapterRAM 是 u32，
+    // 超过 4GB 会回绕（16GB 显卡会报出错误值），不能用
+    if let Some(nvml) = &nvml {
+        if let Ok(dev) = nvml.device_by_index(0) {
+            let link = |cur: Option<u32>, max: Option<u32>| match (cur, max) {
+                (Some(c), Some(m)) => Some(format!("{c} / {m}")),
+                (c, m) => c.or(m).map(|v| v.to_string()),
+            };
+            let name = dev.name().unwrap_or_else(|_| "NVIDIA".into());
+            let mut extra = vec![
+                    HwItem::new(
+                        "hw.gpu.vram",
+                        dev.memory_info().ok().map(|m| bytes_gb(m.total)),
+                    ),
+                    HwItem::new(
+                        "hw.gpu.nvmlDriver",
+                        nvml.sys_driver_version().ok(),
+                    ),
+                    HwItem::new("hw.gpu.vbios", dev.vbios_version().ok()),
+                    HwItem::new(
+                        "hw.gpu.pcieGen",
+                        link(
+                            dev.current_pcie_link_gen().ok(),
+                            dev.max_pcie_link_gen().ok(),
+                        ),
+                    ),
+                    HwItem::new(
+                        "hw.gpu.pcieWidth",
+                        link(
+                            dev.current_pcie_link_width().ok(),
+                            dev.max_pcie_link_width().ok(),
+                        ),
+                    ),
+            ];
+            // NVML 与 WMI 会报出同一块卡。合并进同名分组，避免界面上出现
+            // 两个标题相同的分组；匹配不上（改名、多卡）时才单独成组。
+            match groups.iter_mut().find(|g| g.title == name) {
+                Some(g) => g.items.append(&mut extra),
+                None => groups.push(HwGroup {
+                    title: name,
+                    items: extra,
+                }),
+            }
+        }
+    }
+    groups
+}
+
+fn collect_disk() -> Vec<HwGroup> {
+    // 存储类不在默认命名空间；连接失败时返回空列表，前端显示为空分类
+    let hub = WmiHub::with_namespace(r"root\Microsoft\Windows\Storage");
+    hub.query::<PhysicalDisk>()
+        .unwrap_or_default()
+        .iter()
+        .map(|d| {
+            let mut items = vec![
+                HwItem::new("hw.disk.capacity", d.size.map(bytes_gb)),
+                HwItem::new(
+                    "hw.disk.media",
+                    d.media_type.and_then(media_name).map(String::from),
+                ),
+                HwItem::new(
+                    "hw.disk.bus",
+                    d.bus_type.and_then(bus_name).map(String::from),
+                ),
+            ];
+            // 转速只对机械盘有意义。SSD 上它不是"取不到"而是"不适用"，
+            // 显示成 N/A 会让人以为读取失败，所以整项不生成。
+            if let Some(rpm) = d.spindle_speed.filter(|s| *s > 0 && *s != u32::MAX) {
+                items.push(HwItem::new("hw.disk.rpm", Some(format!("{rpm} RPM"))));
+            }
+            items.extend([
+                HwItem::new("hw.disk.firmware", d.firmware_version.clone()),
+                HwItem::new(
+                    "hw.disk.health",
+                    d.health_status.map(|h| health_key(h).to_string()),
+                ),
+                HwItem::secret("hw.disk.serial", d.serial_number.clone()),
+            ]);
+            HwGroup {
+                title: d.friendly_name.clone().unwrap_or_default(),
+                items,
+            }
+        })
+        .collect()
+}
+
+/// sockaddr → 可读地址串。手工格式化而非 WSAAddressToStringW：
+/// 免去 WinSock 初始化，且不必处理它附带的端口后缀。
+unsafe fn sockaddr_str(sa: *const windows::Win32::Networking::WinSock::SOCKADDR) -> Option<String> {
+    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR_IN, SOCKADDR_IN6};
+    if sa.is_null() {
+        return None;
+    }
+    match (*sa).sa_family {
+        AF_INET => {
+            let v4 = &*(sa as *const SOCKADDR_IN);
+            let o = v4.sin_addr.S_un.S_un_b;
+            Some(std::net::Ipv4Addr::new(o.s_b1, o.s_b2, o.s_b3, o.s_b4).to_string())
+        }
+        AF_INET6 => {
+            let v6 = &*(sa as *const SOCKADDR_IN6);
+            Some(std::net::Ipv6Addr::from(v6.sin6_addr.u.Byte).to_string())
+        }
+        _ => None,
+    }
+}
+
+unsafe fn pwstr_str(p: windows::core::PWSTR) -> Option<String> {
+    (!p.is_null()).then(|| p.to_string().unwrap_or_default())
+}
+
+/// IF_TYPE_* → 名称。只区分对用户有意义的几类。
+fn if_type_key(t: u32) -> Option<&'static str> {
+    match t {
+        6 => Some("hw.net.ethernet"),
+        71 => Some("hw.net.wifi"),
+        131 => Some("hw.net.tunnel"),
+        237 => Some("hw.net.wwan"),
+        _ => None,
+    }
+}
+
+/// 网卡信息走 IpHelper 的 GetAdaptersAddresses，而非 Win32_NetworkAdapter：
+/// 一次调用即可拿到 MAC、IP、网关、DNS 与链路速率，比多次 WMI 往返快得多。
+/// 物理网卡的 MAC 集合。
+///
+/// 判据用 PNPDeviceID 前缀而非 Win32_NetworkAdapter.PhysicalAdapter —— 后者
+/// 对不少虚拟适配器同样返回 True（众所周知不可靠）。真实硬件挂在 PCI 或 USB
+/// 总线上，而 VPN/隧道/Wi-Fi Direct 这类软件适配器是 ROOT\ 或 SWD\ 开头。
+fn physical_macs(hub: &WmiHub) -> std::collections::HashSet<String> {
+    hub.query::<NetworkAdapter>()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| {
+            a.pnp_device_id.as_deref().is_some_and(|id| {
+                let id = id.to_ascii_uppercase();
+                id.starts_with(r"PCI\") || id.starts_with(r"USB\")
+            })
+        })
+        .filter_map(|a| a.mac_address.map(|m| m.to_ascii_uppercase()))
+        .collect()
+}
+
+fn collect_net(hub: &WmiHub) -> Vec<HwGroup> {
+    let physical = physical_macs(hub);
+    use windows::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST,
+        GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
+    };
+    use windows::Win32::Networking::WinSock::AF_UNSPEC;
+
+    unsafe {
+        let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_INCLUDE_GATEWAYS;
+        let mut size = 0u32;
+        // 首次调用只为取所需缓冲长度
+        GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, None, &mut size);
+        if size == 0 {
+            return Vec::new();
+        }
+        let mut buf = vec![0u8; size as usize];
+        let head = buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+        if GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, Some(head), &mut size) != 0 {
+            return Vec::new();
+        }
+
+        let mut groups = Vec::new();
+        let mut cur = head;
+        while !cur.is_null() {
+            let a = &*cur;
+            cur = a.Next;
+
+            let mac = (a.PhysicalAddressLength > 0).then(|| {
+                a.PhysicalAddress[..a.PhysicalAddressLength as usize]
+                    .iter()
+                    .map(|b| format!("{b:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(":")
+            });
+
+            // 只保留真实硬件：Wi-Fi Direct、VPN 隧道、TAP 之类的软件适配器
+            // 会把列表撑到十来项，还会报出 100Gbps 这样的假链路速率。
+            // physical 为空说明 WMI 查询失败，此时不过滤，宁可多显示也不空白。
+            let is_physical = physical.is_empty()
+                || mac.as_deref().is_some_and(|m| physical.contains(m));
+            if a.IfType == 24 || !is_physical {
+                continue;
+            }
+
+            let mut ips = Vec::new();
+            let mut uni = a.FirstUnicastAddress;
+            while !uni.is_null() {
+                if let Some(ip) = sockaddr_str((*uni).Address.lpSockaddr) {
+                    ips.push(ip);
+                }
+                uni = (*uni).Next;
+            }
+            let mut gateways = Vec::new();
+            let mut gw = a.FirstGatewayAddress;
+            while !gw.is_null() {
+                if let Some(ip) = sockaddr_str((*gw).Address.lpSockaddr) {
+                    gateways.push(ip);
+                }
+                gw = (*gw).Next;
+            }
+            let mut dns = Vec::new();
+            let mut d = a.FirstDnsServerAddress;
+            while !d.is_null() {
+                if let Some(ip) = sockaddr_str((*d).Address.lpSockaddr) {
+                    dns.push(ip);
+                }
+                d = (*d).Next;
+            }
+
+            let join = |v: Vec<String>| (!v.is_empty()).then(|| v.join(", "));
+            groups.push(HwGroup {
+                title: pwstr_str(a.FriendlyName).unwrap_or_default(),
+                items: vec![
+                    HwItem::new("hw.net.description", pwstr_str(a.Description)),
+                    HwItem::new(
+                        "hw.net.type",
+                        if_type_key(a.IfType).map(String::from),
+                    ),
+                    HwItem::new(
+                        "hw.net.status",
+                        Some(
+                            if a.OperStatus.0 == 1 { "hw.net.up" } else { "hw.net.down" }
+                                .to_string(),
+                        ),
+                    ),
+                    HwItem::new(
+                        "hw.net.linkSpeed",
+                        (a.TransmitLinkSpeed > 0 && a.TransmitLinkSpeed != u64::MAX)
+                            .then(|| format!("{} Mbps", a.TransmitLinkSpeed / 1_000_000)),
+                    ),
+                    HwItem::secret("hw.net.mac", mac),
+                    HwItem::secret("hw.net.ip", join(ips)),
+                    HwItem::new("hw.net.gateway", join(gateways)),
+                    HwItem::new("hw.net.dns", join(dns)),
+                ],
+            });
+        }
+        groups
+    }
+}
+
 fn collect_board(hub: &WmiHub) -> Vec<HwGroup> {
     let board = hub
         .query::<BaseBoard>()
@@ -476,6 +820,9 @@ fn collect() -> HwInfo {
     HwInfo {
         cpu: collect_cpu(&hub),
         memory: collect_memory(&hub),
+        gpu: collect_gpu(&hub),
+        disk: collect_disk(),
+        network: collect_net(&hub),
         board: collect_board(&hub),
         system: collect_system(&hub),
     }
@@ -554,6 +901,55 @@ mod tests {
         assert!(s.contains('d') && s.contains('h') && s.contains('m'), "{s}");
     }
 
+    #[test]
+    fn storage_enum_codes_map_to_names() {
+        assert_eq!(media_name(4), Some("SSD"));
+        assert_eq!(media_name(3), Some("HDD"));
+        assert_eq!(bus_name(17), Some("NVMe"));
+        assert_eq!(bus_name(11), Some("SATA"));
+        // 未知码不猜
+        assert_eq!(media_name(99), None);
+        assert_eq!(bus_name(99), None);
+    }
+
+    #[test]
+    fn health_codes_map_to_keys() {
+        assert_eq!(health_key(0), "hw.disk.healthy");
+        assert_eq!(health_key(1), "hw.disk.warning");
+        // 未知状态归入 unhealthy 而非静默忽略：宁可误报也不漏报
+        assert_eq!(health_key(7), "hw.disk.unhealthy");
+    }
+
+    #[test]
+    fn interface_types_map_to_keys() {
+        assert_eq!(if_type_key(6), Some("hw.net.ethernet"));
+        assert_eq!(if_type_key(71), Some("hw.net.wifi"));
+        assert_eq!(if_type_key(999), None);
+    }
+
+    /// 真机：虚拟适配器必须被挡掉，否则列表会被 Wi-Fi Direct / VPN 隧道淹没
+    #[test]
+    #[ignore = "hw: 需要真实网卡"]
+    fn virtual_adapters_are_filtered_out() {
+        let hub = WmiHub::new();
+        let nets = collect_net(&hub);
+        assert!(!nets.is_empty(), "no adapter at all");
+        for g in &nets {
+            let desc = g
+                .items
+                .iter()
+                .find(|i| i.key == "hw.net.description")
+                .and_then(|i| i.value.clone())
+                .unwrap_or_default();
+            for junk in ["Wi-Fi Direct", "Tunnel", "TAP-Win32", "Pseudo"] {
+                assert!(
+                    !desc.contains(junk),
+                    "virtual adapter leaked through: {desc}"
+                );
+            }
+        }
+    }
+
     /// 手动诊断：打印本机实际采集到的全部字段与耗时。
     /// 换机器排查"某项显示 N/A"时先跑这个，能直接看出是 WMI 没返回还是解析丢了。
     ///   cargo test --lib hwinfo_dump -- --ignored --nocapture
@@ -567,6 +963,9 @@ mod tests {
         for (cat, groups) in [
             ("CPU", &info.cpu),
             ("MEMORY", &info.memory),
+            ("GPU", &info.gpu),
+            ("DISK", &info.disk),
+            ("NETWORK", &info.network),
             ("BOARD", &info.board),
             ("SYSTEM", &info.system),
         ] {
