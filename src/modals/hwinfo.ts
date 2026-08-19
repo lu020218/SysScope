@@ -125,6 +125,37 @@ function asText(): string {
   return lines.join("\n");
 }
 
+/**
+ * 供报告导出使用：标签与值都已翻译好（硬件标签只存在于前端语言包），
+ * 但保留 sensitive 原样 —— 是否脱敏由后端按开关统一裁决，
+ * 这样"未显式开启就绝不写进文件"是后端不变式，而非各调用方自觉。
+ * 返回 null 表示尚未打开过硬件信息弹窗，此时报告不含硬件节。
+ */
+export function forReport() {
+  if (!data) return null;
+  return CATEGORIES.map(([cat, key]) => ({
+    title: t(key),
+    blocks: data![cat].map((g) => ({
+      title: g.title,
+      rows: g.items.map((it) => ({
+        label: t(it.key),
+        value: displayValue(it.value),
+        sensitive: it.sensitive ?? false,
+      })),
+    })),
+  })).filter((sec) => sec.blocks.length > 0);
+}
+
+/** 报告导出前确保硬件信息已就绪（用户可能从未打开过弹窗） */
+export async function ensureLoaded() {
+  if (data) return;
+  try {
+    data = await invoke<HwInfo>("hardware_info");
+  } catch {
+    // 采集失败不应阻断报告导出，仅让报告不含硬件节
+  }
+}
+
 export function init() {
   const modal = $("hw-modal");
   const close = () => modal.classList.add("hidden");

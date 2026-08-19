@@ -189,6 +189,10 @@ const en: Record<Keys, string> = {
   "settings.th.gpuTemp": "GPU temperature (°C)",
   "settings.probe": "Network probe",
   "settings.probe.target": "Latency probe target (IP / hostname)",
+  "settings.privacy": "Privacy",
+  "settings.fullSerials": "Include full serial numbers in reports",
+  "settings.fullSerials.note":
+    "When off, exported reports keep only the last 4 characters of serials and MAC addresses",
   "settings.diag": "Diagnostics",
   "settings.diag.sampleCost": "Sampling cost per tick",
   "settings.reset": "Restore defaults",

@@ -1,12 +1,83 @@
 use crate::i18n::{tr, tr_fmt, Lang};
 use chrono::{DateTime, Local};
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 const UPLOT_JS: &str = include_str!("../templates/uPlot.iife.min.js");
 const UPLOT_CSS: &str = include_str!("../templates/uPlot.min.css");
 const HTML_TEMPLATE: &str = include_str!("../templates/report.html");
+
+// ---------- 硬件信息（由前端随导出请求传入） ----------
+//
+// 硬件标签（hw.cpu.model 等）只存在于前端语言包。让后端也持有一份意味着
+// 85 条中英文案要在两处维护；改为由前端传入已翻译好的 label + value，
+// 报告这边只负责排版。
+//
+// 但脱敏必须留在后端：前端传的是原始值加 sensitive 标记，是否展示完整
+// 序列号由此处统一裁决 —— 这样"未显式开启就绝不写进文件"是一条后端不变式，
+// 而不依赖每个调用方自觉。
+#[derive(Deserialize, Serialize, Clone)]
+pub struct HwRow {
+    pub label: String,
+    pub value: String,
+    /// 机器指纹（序列号、MAC）：未开启完整显示时脱敏
+    #[serde(default)]
+    pub sensitive: bool,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct HwBlock {
+    pub title: String,
+    pub rows: Vec<HwRow>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct HwSection {
+    pub title: String,
+    pub blocks: Vec<HwBlock>,
+}
+
+/// 只保留末 4 位。足以在多块同型号硬盘之间区分，又不构成可追溯的机器指纹。
+fn mask(value: &str) -> String {
+    let chars: Vec<char> = value.chars().collect();
+    if chars.len() <= 4 {
+        return "*".repeat(chars.len().max(1));
+    }
+    format!("****{}", chars[chars.len() - 4..].iter().collect::<String>())
+}
+
+/// 按开关决定是否脱敏，返回可直接写进文件的副本
+fn apply_masking(hw: &[HwSection], full_serials: bool) -> Vec<HwSection> {
+    if full_serials {
+        return hw.to_vec();
+    }
+    hw.iter()
+        .map(|sec| HwSection {
+            title: sec.title.clone(),
+            blocks: sec
+                .blocks
+                .iter()
+                .map(|b| HwBlock {
+                    title: b.title.clone(),
+                    rows: b
+                        .rows
+                        .iter()
+                        .map(|r| HwRow {
+                            label: r.label.clone(),
+                            value: if r.sensitive {
+                                mask(&r.value)
+                            } else {
+                                r.value.clone()
+                            },
+                            sensitive: r.sensitive,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        })
+        .collect()
+}
 
 #[derive(Serialize, Default)]
 struct Row {
@@ -47,6 +118,8 @@ pub fn export(
     format: &str,
     out_dir: &Path,
     lang: Lang,
+    hw: &[HwSection],
+    full_serials: bool,
 ) -> Result<String, String> {
     let info = conn
         .query_row(
@@ -83,13 +156,14 @@ pub fn export(
     );
     let out_path = out_dir.join(file_name);
 
+    let hw = apply_masking(hw, full_serials);
     let content = match format {
-        "html" => render_html(&info, &rows, lang),
-        // CSV/JSON 的列名与字段名保持英文不变：它们是给 Excel、pandas、脚本
-        // 消费的，翻译只会破坏下游解析
+        "html" => render_html(&info, &rows, lang, &hw),
+        // CSV 是行式采样数据，塞机器规格没有意义；且它的列名与 JSON 的字段名
+        // 保持英文不变 —— 供 Excel、pandas、脚本消费，翻译会破坏下游解析
         "csv" => render_csv(&rows),
-        "json" => render_json(&info, &rows)?,
-        "md" => render_md(&info, &rows, lang),
+        "json" => render_json(&info, &rows, &hw)?,
+        "md" => render_md(&info, &rows, lang, &hw),
         _ => unreachable!(),
     };
     std::fs::write(&out_path, content).map_err(|e| e.to_string())?;
@@ -309,7 +383,11 @@ fn render_csv(rows: &[Row]) -> String {
     out
 }
 
-fn render_json(info: &SessionInfo, rows: &[Row]) -> Result<String, String> {
+fn render_json(
+    info: &SessionInfo,
+    rows: &[Row],
+    hw: &[HwSection],
+) -> Result<String, String> {
     let v = serde_json::json!({
         "session": {
             "id": info.id,
@@ -317,12 +395,13 @@ fn render_json(info: &SessionInfo, rows: &[Row]) -> Result<String, String> {
             "ended_at": info.ended_at,
             "started_at_local": fmt_ts(info.started_at),
         },
+        "hardware": hw,
         "samples": rows,
     });
     serde_json::to_string_pretty(&v).map_err(|e| e.to_string())
 }
 
-fn render_md(info: &SessionInfo, rows: &[Row], lang: Lang) -> String {
+fn render_md(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -> String {
     let mut out = format!(
         "# {}\n\n- {}: {}\n- {}: {}\n- {}: {}\n- {}: {}\n",
         tr_fmt(lang, "report.title", &[("id", &info.id.to_string())]),
@@ -381,10 +460,26 @@ fn render_md(info: &SessionInfo, rows: &[Row], lang: Lang) -> String {
     for (name, pct) in threshold_rows(rows, lang) {
         out.push_str(&format!("| {name} | {pct:.1}% |\n"));
     }
+
+    if !hw.is_empty() {
+        out.push_str(&format!("\n## {}\n", tr(lang, "report.hwHeading")));
+        for sec in hw {
+            out.push_str(&format!("\n### {}\n\n", sec.title));
+            for b in &sec.blocks {
+                if !b.title.is_empty() {
+                    out.push_str(&format!("**{}**\n\n", b.title));
+                }
+                for r in &b.rows {
+                    out.push_str(&format!("- {}: {}\n", r.label, r.value));
+                }
+                out.push('\n');
+            }
+        }
+    }
     out
 }
 
-fn render_html(info: &SessionInfo, rows: &[Row], lang: Lang) -> String {
+fn render_html(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -> String {
     let data = serde_json::json!({
         "ts": rows.iter().map(|r| r.ts / 1000).collect::<Vec<_>>(),
         "cpu": rows.iter().map(|r| r.cpu_total).collect::<Vec<_>>(),
@@ -436,7 +531,38 @@ fn render_html(info: &SessionInfo, rows: &[Row], lang: Lang) -> String {
         rows.len(),
     );
 
+    // 硬件信息里含设备自报的型号串，一律转义后再拼进 HTML
+    let mut hw_html = String::new();
+    if !hw.is_empty() {
+        hw_html.push_str(&format!(
+            "<h2>{}</h2>",
+            esc(tr(lang, "report.hwHeading"))
+        ));
+        for sec in hw {
+            hw_html.push_str(&format!(
+                "<div class=\"hw-sec\"><h3>{}</h3>",
+                esc(&sec.title)
+            ));
+            for b in &sec.blocks {
+                if !b.title.is_empty() {
+                    hw_html.push_str(&format!("<h4>{}</h4>", esc(&b.title)));
+                }
+                hw_html.push_str("<table><tbody>");
+                for r in &b.rows {
+                    hw_html.push_str(&format!(
+                        "<tr><td>{}</td><td>{}</td></tr>",
+                        esc(&r.label),
+                        esc(&r.value)
+                    ));
+                }
+                hw_html.push_str("</tbody></table>");
+            }
+            hw_html.push_str("</div>");
+        }
+    }
+
     let mut html = HTML_TEMPLATE
+        .replace("__HARDWARE__", &hw_html)
         .replace(
             "__TITLE__",
             &tr_fmt(lang, "report.title", &[("id", &info.id.to_string())]),
@@ -480,6 +606,15 @@ const TEMPLATE_STRINGS: &[(&str, &str)] = &[
     ("__T_L_WRITE__", "report.label.write"),
 ];
 
+/// 硬件信息中的型号、适配器名等来自驱动与固件，是外部字符串，
+/// 拼进 HTML 前必须转义
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 /// 嵌入 <script> 块前转义 JSON 中的 `<`，防止字符串值（如进程名）
 /// 包含 </script> 逃逸出脚本块。JSON 语法本身不含 `<`，
 /// 替换只作用于字符串字面量内部，解析语义不变
@@ -512,7 +647,7 @@ mod tests {
             (Lang::ZhCn, "md", "## 统计摘要"),
             (Lang::En, "md", "## Summary"),
         ] {
-            let path = super::export(&conn, sid, fmt, &dir, lang).unwrap();
+            let path = super::export(&conn, sid, fmt, &dir, lang, &[], false).unwrap();
             let content = std::fs::read_to_string(&path).unwrap();
             assert!(
                 content.contains(marker),
@@ -522,7 +657,7 @@ mod tests {
 
         // 英文报告不得残留未替换的占位符或中文
         let en_html =
-            std::fs::read_to_string(super::export(&conn, sid, "html", &dir, Lang::En).unwrap())
+            std::fs::read_to_string(super::export(&conn, sid, "html", &dir, Lang::En, &[], false).unwrap())
                 .unwrap();
         assert!(!en_html.contains("__T_"), "unreplaced template placeholder");
         for zh in ["统计摘要", "阈值超限", "历史曲线", "打印", "内存", "显存"] {
@@ -531,18 +666,120 @@ mod tests {
 
         // HTML 报告应自包含（内嵌 uPlot 与数据）
         let html =
-            std::fs::read_to_string(super::export(&conn, sid, "html", &dir, Lang::ZhCn).unwrap())
+            std::fs::read_to_string(super::export(&conn, sid, "html", &dir, Lang::ZhCn, &[], false).unwrap())
                 .unwrap();
         assert!(html.contains("uPlot"), "uPlot not embedded");
         assert!(html.contains("\"cpu\""), "data not embedded");
         assert!(!html.contains("http://") || html.contains("http://www.w3.org"), "external refs");
 
         // 未知格式与空会话报错，且错误文案跟随语言
-        let err = super::export(&conn, sid, "pdf", &dir, Lang::En).unwrap_err();
+        let err = super::export(&conn, sid, "pdf", &dir, Lang::En, &[], false).unwrap_err();
         assert_eq!(err, "Unknown format: pdf");
-        let err = super::export(&conn, 9999, "html", &dir, Lang::En).unwrap_err();
+        let err = super::export(&conn, 9999, "html", &dir, Lang::En, &[], false).unwrap_err();
         assert_eq!(err, "Session 9999 does not exist");
-        assert!(super::export(&conn, 9999, "html", &dir, Lang::ZhCn).is_err());
+        assert!(super::export(&conn, 9999, "html", &dir, Lang::ZhCn, &[], false).is_err());
+    }
+
+    fn sample_hw() -> Vec<super::HwSection> {
+        vec![super::HwSection {
+            title: "Motherboard".into(),
+            blocks: vec![super::HwBlock {
+                title: String::new(),
+                rows: vec![
+                    super::HwRow {
+                        label: "Board model".into(),
+                        value: "ROG STRIX B760-G".into(),
+                        sensitive: false,
+                    },
+                    super::HwRow {
+                        label: "Board serial".into(),
+                        value: "240436541701519".into(),
+                        sensitive: true,
+                    },
+                ],
+            }],
+        }]
+    }
+
+    #[test]
+    fn mask_keeps_only_last_four() {
+        assert_eq!(super::mask("240436541701519"), "****1519");
+        assert_eq!(super::mask("10:7C:61:B5:C5:2B"), "****5:2B");
+        // 过短的值整体打码，不能反而把全部内容留下
+        assert_eq!(super::mask("AB"), "**");
+        assert_eq!(super::mask(""), "*");
+        // 多字节字符按字符切分，不能在 UTF-8 中间截断导致 panic
+        assert_eq!(super::mask("序列号很长的值"), "****很长的值");
+    }
+
+    /// 未开启完整显示时，序列号不得以任何形式进入导出文件
+    #[test]
+    fn serials_are_masked_in_every_format() {
+        let dir = std::env::temp_dir().join("sysscope-test-mask");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (db_path, sid) = make_test_db(&dir);
+        let conn = open_db(&db_path).unwrap();
+        let hw = sample_hw();
+
+        for fmt in ["html", "md", "json"] {
+            let path =
+                super::export(&conn, sid, fmt, &dir, Lang::En, &hw, false).unwrap();
+            let content = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                !content.contains("240436541701519"),
+                "{fmt}: raw serial leaked into the report"
+            );
+            assert!(content.contains("****1519"), "{fmt}: masked serial missing");
+            // 非敏感字段照常完整输出
+            assert!(content.contains("ROG STRIX B760-G"), "{fmt}: model missing");
+        }
+
+        // 显式开启后才输出完整序列号
+        let path = super::export(&conn, sid, "md", &dir, Lang::En, &hw, true).unwrap();
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("240436541701519"));
+    }
+
+    /// CSV 是行式采样数据，不该混入机器规格
+    #[test]
+    fn csv_carries_no_hardware() {
+        let dir = std::env::temp_dir().join("sysscope-test-csvhw");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (db_path, sid) = make_test_db(&dir);
+        let conn = open_db(&db_path).unwrap();
+        let path =
+            super::export(&conn, sid, "csv", &dir, Lang::En, &sample_hw(), true).unwrap();
+        let csv = std::fs::read_to_string(&path).unwrap();
+        assert!(!csv.contains("ROG STRIX"));
+        assert!(!csv.contains("240436541701519"));
+    }
+
+    /// 型号串来自驱动与固件，必须转义后才进 HTML
+    #[test]
+    fn hardware_values_are_html_escaped() {
+        let dir = std::env::temp_dir().join("sysscope-test-hwesc");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (db_path, sid) = make_test_db(&dir);
+        let conn = open_db(&db_path).unwrap();
+        let hw = vec![super::HwSection {
+            title: "X".into(),
+            blocks: vec![super::HwBlock {
+                title: String::new(),
+                rows: vec![super::HwRow {
+                    label: "Model".into(),
+                    value: "<script>alert(1)</script>".into(),
+                    sensitive: false,
+                }],
+            }],
+        }];
+        let path = super::export(&conn, sid, "html", &dir, Lang::En, &hw, false).unwrap();
+        let html = std::fs::read_to_string(&path).unwrap();
+        assert!(!html.contains("<script>alert(1)"), "unescaped device string");
+        assert!(html.contains("&lt;script&gt;alert(1)"));
     }
 
     /// 恶意进程名不得逃逸出 HTML 报告的 <script> 数据块
@@ -560,7 +797,7 @@ mod tests {
         )
         .unwrap();
 
-        let path = super::export(&conn, sid, "html", &dir, Lang::ZhCn).unwrap();
+        let path = super::export(&conn, sid, "html", &dir, Lang::ZhCn, &[], false).unwrap();
         let html = std::fs::read_to_string(path).unwrap();
         assert!(
             !html.contains("</script><script>alert"),

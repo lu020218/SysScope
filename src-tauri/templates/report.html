@@ -31,6 +31,10 @@ td.bad { color: #f87171; font-weight: 600; }
 .chart-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
 .chart-box h3 { font-size: 13px; color: var(--dim); margin-bottom: 8px; }
 .u-legend { color: var(--dim); font-size: 12px; }
+.hw-sec { margin-bottom: 16px; }
+.hw-sec h3 { font-size: 13px; margin: 12px 0 6px; color: var(--text); }
+.hw-sec h4 { font-size: 12px; margin: 10px 0 4px; color: var(--dim); font-weight: 600; }
+.hw-sec td:first-child { color: var(--dim); width: 40%; }
 @media print {
   body { background: #fff; color: #111; }
   .toolbar { display: none; }
@@ -60,6 +64,8 @@ td.bad { color: #f87171; font-weight: 600; }
   <thead><tr><th>__T_COL_COND__</th><th>__T_COL_EXCEED__</th></tr></thead>
   <tbody>__THRESH__</tbody>
 </table>
+
+__HARDWARE__
 
 <h2>__T_CHARTS_H__</h2>
 <div class="chart-box"><h3>__T_CHART_UTIL__</h3><div id="c-util"></div></div>

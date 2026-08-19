@@ -57,3 +57,17 @@ export function saveThresholds(t: Partial<Thresholds>) {
 addEventListener("storage", () => {
   cache = load();
 });
+
+/**
+ * 报告是否输出完整序列号。默认关闭 —— 主板/磁盘序列号与 MAC 能唯一标识
+ * 这台机器，而报告是拿来分享的；界面上完整显示，导出时才脱敏。
+ */
+const FULL_SERIALS_KEY = "sysscope-full-serials";
+
+export function fullSerials(): boolean {
+  return localStorage.getItem(FULL_SERIALS_KEY) === "1";
+}
+
+export function setFullSerials(on: boolean) {
+  localStorage.setItem(FULL_SERIALS_KEY, on ? "1" : "0");
+}

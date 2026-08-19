@@ -315,6 +315,10 @@ pub fn export_report(
     format: String,
     // lang：前端当前界面语言。报告是会分享出去的产物，跟随导出者的语言
     lang: String,
+    // hardware：前端已翻译好的硬件信息（标签在前端语言包里，后端不重复维护）；
+    // full_serials 为假时后端会对 sensitive 项脱敏后才写入文件
+    hardware: Vec<crate::report::HwSection>,
+    full_serials: bool,
 ) -> Result<String, String> {
     let conn = open_db(&db.0).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&reports.0).map_err(|e| e.to_string())?;
@@ -324,6 +328,8 @@ pub fn export_report(
         &format,
         &reports.0,
         crate::i18n::Lang::parse(&lang),
+        &hardware,
+        full_serials,
     )
 }
 
@@ -461,7 +467,7 @@ pub mod tests {
             .unwrap();
         assert!(ended.is_some(), "ended_at must be set after stop");
         let report =
-            crate::report::export(&conn, sid, "html", &dir, crate::i18n::Lang::ZhCn);
+            crate::report::export(&conn, sid, "html", &dir, crate::i18n::Lang::ZhCn, &[], false);
         assert!(report.is_ok(), "export failed: {report:?}");
     }
 

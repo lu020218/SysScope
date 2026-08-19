@@ -1128,3 +1128,11 @@ body {
   color: var(--text-faint);
   font-weight: 400;
 }
+
+/* 设置项下方的补充说明 */
+.setting-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin: -2px 0 4px;
+}

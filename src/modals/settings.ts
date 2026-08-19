@@ -1,7 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { $ } from "../format";
 import { currentLang, setLang, type Lang } from "../i18n";
-import { DEFAULTS, saveThresholds, thresholds } from "../thresholds";
+import {
+  DEFAULTS,
+  fullSerials,
+  saveThresholds,
+  setFullSerials,
+  thresholds,
+} from "../thresholds";
 
 const TH_INPUTS: Record<string, keyof typeof DEFAULTS> = {
   "th-cpu": "cpu",
@@ -36,6 +42,11 @@ export function init() {
   const langSel = $("lang-select") as HTMLSelectElement;
   langSel.value = currentLang();
   langSel.addEventListener("change", () => setLang(langSel.value as Lang));
+
+  // 报告序列号脱敏开关（后端按此裁决，前端只负责传递）
+  const serials = $("full-serials") as HTMLInputElement;
+  serials.checked = fullSerials();
+  serials.addEventListener("change", () => setFullSerials(serials.checked));
 
   for (const [id, key] of Object.entries(TH_INPUTS)) {
     $(id).addEventListener("change", (e) => {

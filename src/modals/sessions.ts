@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { $ } from "../format";
 import { applyStatic, currentLang, t } from "../i18n";
+import { ensureLoaded, forReport } from "./hwinfo";
+import { fullSerials } from "../thresholds";
 import type { RecStatus, SessionMeta } from "../types";
 
 let recording = false;
@@ -97,10 +99,14 @@ async function refreshSessions() {
           await refreshSessions();
           return;
         }
+        // 报告带上机器规格：没有配置信息的性能报告价值会打折
+        await ensureLoaded();
         const path = await invoke<string>("export_report", {
           sessionId: s.id,
           format: fmt,
           lang: currentLang(),
+          hardware: forReport() ?? [],
+          fullSerials: fullSerials(),
         });
         toast.textContent = t("sessions.exported", { path });
         toast.classList.remove("hidden", "error");
