@@ -36,6 +36,14 @@ backing up, or if memory pressure is causing hard page faults.
 | **Network** | Per-adapter throughput, ICMP latency with jitter and packet loss, TCP connection states, retransmission rate, link utilization |
 | **Processes** | Top 5 by CPU, memory, disk, network **and GPU**; click any row for threads, handles, working set, private bytes, page faults, priority and CPU affinity |
 
+**Hardware inventory.** A separate panel lists what the machine actually is:
+CPU stepping, cache sizes, microcode revision and instruction sets; every DIMM
+with its part number, rated vs. configured speed and the slot it sits in; GPU
+VBIOS and PCIe link width; each disk's media type, bus, firmware and SMART
+health; physical network adapters with MAC, addresses and link speed; and the
+motherboard, BIOS and OS build. One click copies the lot as text for a bug
+report.
+
 **FPS overlay for games.** A borderless always-on-top strip that follows whatever
 app is in the foreground and shows its frame rate next to CPU/GPU/memory/network.
 Frame data comes from ETW (DXGI/D3D9 present events), the same source PresentMon
@@ -70,7 +78,10 @@ language on first run; change it under Settings → Language. Exported reports u
 whichever language the UI is in at export time — CSV and JSON keep English column
 names so downstream tooling keeps working.
 
-Reports are written to `Documents\SysScope\reports`.
+Reports are written to `Documents\SysScope\reports`. They embed the
+machine's hardware inventory, with serial numbers and MAC addresses masked to
+their last four characters — reports get shared, and those values identify your
+machine. Settings → Privacy turns full serials back on if you need them.
 
 ---
 
@@ -100,8 +111,8 @@ cannot find `vswhere`, run it from a VS Developer Prompt or add
 ### Tests
 
 ```bash
-cd src-tauri && cargo test                        # 29 pure-logic tests, CI-safe
-cd src-tauri && cargo test -- --include-ignored   # + 8 tests needing real hardware
+cd src-tauri && cargo test                        # 41 pure-logic tests, CI-safe
+cd src-tauri && cargo test -- --include-ignored   # + 11 tests needing real hardware
 node scripts/check-i18n.mjs                       # translation keys line up
 ```
 

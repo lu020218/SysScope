@@ -33,6 +33,12 @@ TCP 重传、每进程显存占用……）。
 | **网络** | 每网卡吞吐、ICMP 延迟与抖动丢包、TCP 连接状态分布、重传率、链路利用率 |
 | **进程** | CPU / 内存 / 磁盘 / 网络 / **GPU** 五维 Top 5；点击任意行查看线程数、句柄数、工作集、私有提交、页错误、优先级与 CPU 亲和性 |
 
+**硬件清单。** 独立面板列出这台机器到底是什么配置：CPU 步进、缓存大小、
+微码版本与指令集；每条内存的型号、标称与实配速率及所在插槽；显卡的 VBIOS
+与 PCIe 链路位宽；每块硬盘的介质类型、总线、固件与 SMART 健康度；物理网卡的
+MAC、地址与链路速率；以及主板、BIOS 与系统版本号。一键复制为文本，方便提
+issue 时贴出完整规格。
+
 **游戏 FPS 悬浮窗。** 无边框置顶细条，自动跟随前台应用显示其帧率，并列出
 CPU/GPU/内存/网络。帧数据来自 ETW（DXGI/D3D9 呈现事件），与 PresentMon 同源 ——
 包含 1% / 0.1% Low、帧时间分位与卡顿计数。
@@ -63,7 +69,9 @@ CPU/GPU/内存/网络。帧数据来自 ETW（DXGI/D3D9 呈现事件），与 Pr
 「设置 → 界面语言」中切换。导出的报告使用导出时的界面语言；CSV 与 JSON
 的列名和字段名固定为英文，以免影响下游脚本解析。
 
-报告导出到 `文档\SysScope\reports`。
+报告导出到 `文档\SysScope\reports`，其中会附带本机硬件清单；序列号与 MAC
+默认只保留后 4 位 —— 报告是拿来分享的，而这些值能唯一标识你的机器。确需完整值时
+可在「设置 → 隐私」中开启。
 
 ---
 
@@ -92,8 +100,8 @@ cd sensor-bridge && dotnet publish -c Release -r win-x64
 ### 测试
 
 ```bash
-cd src-tauri && cargo test                        # 29 项纯逻辑测试，CI 可跑
-cd src-tauri && cargo test -- --include-ignored   # 追加 8 项需真实硬件的测试
+cd src-tauri && cargo test                        # 41 项纯逻辑测试，CI 可跑
+cd src-tauri && cargo test -- --include-ignored   # 追加 11 项需真实硬件的测试
 node scripts/check-i18n.mjs                       # 校验翻译 key 是否齐整
 ```
 

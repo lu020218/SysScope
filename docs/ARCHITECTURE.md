@@ -34,6 +34,7 @@ the overlay, query one process in depth.
 | `lib.rs` | Tauri setup, command registry, tray, window plumbing |
 | `elevate.rs` | Self-elevation at startup (runs before Tauri initialises) |
 | `i18n.rs` | The handful of native strings — tray, elevation dialog, reports |
+| `hwinfo.rs` | Static hardware inventory — queried once, cached forever |
 | `sampler.rs` | The sampling loop, `SamplerCtx`, `Snapshot` assembly, top-N processes |
 | `pdh.rs` | PDH query wrapper — the single query handle every counter hangs off |
 | `disk.rs` | Physical disk I/O, latency, volumes |
@@ -73,6 +74,37 @@ N/A. A monitor that refuses to start because one sensor is missing is useless.
 `requireAdministrator` instead would break the MSI's "launch app" checkbox, which
 uses `CreateProcess` under a non-elevated token and fails silently.
 
+**Static hardware facts are collected once, never per tick.** `hwinfo.rs` queries
+about a dozen WMI classes plus NVML and IpHelper — roughly 320 ms on a real
+machine, dominated by `Nvml::init()`. That runs on the first request only, on a
+blocking thread, cached in a `OnceLock` for the process lifetime. It is
+deliberately *not* part of the sampler's startup: that budget is 221 ms and
+doubling it to show data nobody has asked for yet would be a bad trade.
+
+Note this is a different cost class from the `Win32_PerfFormattedData_*` counters
+that used to dominate a tick — those block on an internal sampling window every
+time; these just read the CIM repository once.
+
+**Some WMI properties lie; prefer a source that cannot.** Three examples worth
+remembering, all found by running the collector on real hardware rather than by
+reading docs:
+
+- `Win32_VideoController.AdapterRAM` is a `u32`, so it wraps above 4 GB. VRAM
+  comes from NVML instead.
+- `Win32_Processor.VirtualizationFirmwareEnabled` reads `False` when Windows
+  itself runs on top of Hyper-V, because the hypervisor masks the CPU bits —
+  it would report "disabled" on a machine where virtualisation is plainly on.
+  `Win32_ComputerSystem.HypervisorPresent` is used as the authority.
+- `Win32_NetworkAdapter.PhysicalAdapter` returns `True` for plenty of virtual
+  adapters. Physical hardware is identified by a `PCI\` or `USB\` prefix on
+  `PNPDeviceID`; without that filter this machine listed eight adapters, five of
+  them Wi-Fi Direct, VPN tunnels and TAP devices — one of which advertised a
+  fictional 100 Gbps link.
+
+OEMs also fill unset DMI fields with placeholders (`System Product Name`,
+`To Be Filled By O.E.M.`, all-zero serials). Those are filtered to "unavailable"
+rather than displayed, or they read as real model numbers.
+
 **Language lives in the frontend; the backend keeps a small table.** Almost every
 user-visible string is inside the WebView, so `src/i18n.ts` owns the language and
 persists the choice. Only the tray menu, the elevation dialog and report output
@@ -83,6 +115,18 @@ The tray is re-labelled in place via `MenuItem::set_text` when the frontend call
 One case cannot be fixed: the elevation-failure dialog in `elevate.rs` runs
 *before* Tauri starts, when there is no WebView and no way to read the user's
 choice, so it always follows the OS display language.
+
+**Hardware labels travel frontend → backend, but masking stays in the backend.**
+The 83 hardware labels exist only in the frontend language packs; keeping a
+second copy in `i18n.rs` would mean maintaining the same strings in two places.
+So the frontend passes already-translated `label` + `value` pairs with the export
+request and the report only lays them out.
+
+Masking was deliberately *not* delegated along with them. The frontend sends raw
+values plus a `sensitive` flag, and `report.rs::apply_masking` decides whether
+full serials reach the file. That makes "nothing identifying is written unless
+explicitly enabled" a backend invariant rather than something every call site has
+to remember — including call sites that do not exist yet.
 
 **Register state before doing slow work in `setup()`.** Tauri creates the window
 and starts loading the frontend *before* `setup()` runs. If `app.manage()` comes
@@ -103,7 +147,7 @@ No framework — plain TypeScript modules, Vite, uPlot for charts.
 | `format.ts` | Byte/rate/duration formatting, safe DOM helpers |
 | `thresholds.ts` | User thresholds (localStorage) + fixed alert constants |
 | `cards/*.ts` | One module per card: `build()` DOM once, `update()` per tick |
-| `modals/*.ts` | Sessions/export, settings, process detail |
+| `modals/*.ts` | Sessions/export, settings, process detail, hardware inventory |
 | `overlay.ts` | The FPS overlay window (separate entry point) |
 
 Three conventions matter:
@@ -142,15 +186,19 @@ contributors do not need the .NET toolchain.
 |---|---|
 | Session database | `%APPDATA%\com.luhaishan.sysscope\sysscope.db` |
 | Exported reports | `Documents\SysScope\reports` |
-| Thresholds, ping target | WebView localStorage |
+| Thresholds, ping target, language, serial policy | WebView localStorage |
 
 Reports deliberately live in Documents: `%APPDATA%` may be EFS-encrypted, which
 makes exported files unopenable from Explorer even though writing them succeeds.
 
 ## Testing
 
-- `cargo test` — 29 pure-logic tests (parsing, statistics, schema, escaping, i18n)
-- `cargo test -- --include-ignored` — plus 8 that need real hardware
+- `cargo test` — 41 pure-logic tests (parsing, statistics, schema, escaping, i18n,
+  serial masking)
+- `cargo test -- --include-ignored` — plus 11 that need real hardware
+- `cargo test --lib hwinfo_dump -- --ignored --nocapture` — prints every hardware
+  field this machine reports, with timings. Start here when a field shows N/A on
+  someone else's box: it separates "WMI returned nothing" from "we dropped it"
 - `scripts/smoke-test.ps1` — post-build check that the app actually works:
   process survives, WebView2 children exist, UI thread responds, panel renders
   content, sampler is active
