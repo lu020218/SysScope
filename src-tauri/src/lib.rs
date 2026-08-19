@@ -5,6 +5,7 @@ mod etw_util;
 mod fps;
 mod gpu;
 mod gpu_proc;
+mod hwinfo;
 mod i18n;
 mod mem_ext;
 mod net_ext;
@@ -211,6 +212,7 @@ pub fn run() {
             window_control,
             set_main_on_top,
             set_language,
+            hwinfo::hardware_info,
             ping::set_ping_target,
             procdetail::process_detail,
             recorder::start_recording,
