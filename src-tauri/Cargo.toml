@@ -1,6 +1,6 @@
 [package]
 name = "sysscope"
-version = "0.1.0"
+version = "0.2.0"
 description = "Windows 系统状态实时监控工具"
 authors = ["okami.520@gmail.com"]
 edition = "2021"

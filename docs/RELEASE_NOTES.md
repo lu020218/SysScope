@@ -3,6 +3,38 @@ overlay, and exportable reports.
 
 ![dashboard](https://raw.githubusercontent.com/lu020218/SysScope/master/docs/images/dashboard.png)
 
+## New in 0.2.0
+
+**The UI speaks English now.** Everything — panels, dialogs, tray menu, overlay
+and exported reports — ships in English and Simplified Chinese. It follows your
+Windows display language on first run; Settings → Language switches it. CSV and
+JSON exports keep English column names either way, so scripts that read them
+don't break.
+
+**Hardware inventory.** A new panel tells you what the machine actually is,
+beyond what it is doing right now:
+
+- **CPU** — socket, cache sizes, stepping, microcode revision, instruction sets,
+  virtualisation state
+- **Memory** — every DIMM with part number, rated vs. configured speed, and which
+  slot it occupies, plus how many slots are free
+- **Graphics** — driver and VBIOS versions, PCIe link gen and width (current vs.
+  maximum), true VRAM size
+- **Storage** — media type, bus, firmware revision, SMART health per drive
+- **Network** — physical adapters only, with MAC, addresses, gateway, DNS and
+  negotiated link speed
+- **Motherboard / BIOS / OS** — board model and revision, BIOS version and date,
+  build number, install date, uptime
+
+One button copies the whole thing as text, which is what you want when filing a
+bug report. Reports embed it too, so a performance capture carries the
+configuration it was taken on.
+
+**Privacy for exported reports.** Serial numbers and MAC addresses show in full
+in the app, but reports keep only their last four characters — reports get
+shared, and those values identify your machine. Settings → Privacy re-enables
+full values when you actually need them.
+
 ## What it does
 
 Six subsystems, each with a live chart and a detail tab that answers *why*:
@@ -34,6 +66,9 @@ interactive HTML report, raw CSV/JSON, or a Markdown summary.
 | Startup to visible | 0.16 s |
 | Memory (tray-resident) | ~140 MB |
 
+The hardware inventory is collected once on first use (~320 ms) and cached — it
+never touches the sampling loop.
+
 ## Install
 
 Download the `.msi` below. Windows 10/11 x64.
@@ -49,8 +84,6 @@ Download the `.msi` below. Windows 10/11 x64.
 - Reports are written to `Documents\SysScope\reports`.
 - Full GPU telemetry needs an NVIDIA card; AMD/Intel GPUs report load and VRAM.
 - SSD SMART data may be hidden by Intel RST/VMD.
-- The UI is available in English and Simplified Chinese, following your Windows
-  display language by default (Settings → Language to change it).
 
 ## Notes
 
