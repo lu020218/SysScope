@@ -14,6 +14,7 @@
         </div>
         <div class="winctrl">
           <button id="ontop-toggle" class="win-settings" data-i18n-title="win.onTop" title="窗口置顶"><span class="pin-glyph">&#xE840;</span></button>
+          <button id="hw-btn" class="win-settings" data-i18n-title="win.hardware" title="硬件信息">&#xE977;</button>
           <button id="settings-btn" class="win-settings" data-i18n-title="win.settings" title="设置">&#xE713;</button>
           <button id="win-min" data-i18n-title="win.min" title="最小化">&#xE921;</button>
           <button id="win-max" data-i18n-title="win.max" title="最大化 / 还原">&#xE922;</button>
@@ -250,6 +251,22 @@
           </div>
         </section>
       </main>
+
+      <div id="hw-modal" class="modal hidden">
+        <div class="modal-box hw-box">
+          <div class="modal-head">
+            <h3 data-i18n="hw.title">硬件信息</h3>
+            <div class="modal-head-actions">
+              <button id="hw-copy" class="toggle-btn" data-i18n="hw.copy">复制为文本</button>
+              <button id="hw-close" data-i18n-title="common.close" title="关闭">×</button>
+            </div>
+          </div>
+          <div class="hw-body">
+            <div class="hw-nav" id="hw-nav"></div>
+            <div class="hw-content" id="hw-content"></div>
+          </div>
+        </div>
+      </div>
 
       <div id="settings-modal" class="modal hidden">
         <div class="modal-box settings-box">

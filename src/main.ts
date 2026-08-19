@@ -12,6 +12,7 @@ import * as procs from "./cards/procs";
 import { buffers } from "./charts";
 import { $, fmtBytes } from "./format";
 import { applyStatic, currentLang, t } from "./i18n";
+import * as hwinfo from "./modals/hwinfo";
 import * as procdetail from "./modals/procdetail";
 import * as sessions from "./modals/sessions";
 import * as settings from "./modals/settings";
@@ -41,6 +42,7 @@ async function main() {
   await step("tabs", initAllTabs);
   await step("procdetail", procdetail.init);
   await step("settings", settings.init);
+  await step("hwinfo", hwinfo.init);
   await step("sessions", sessions.init);
 
   // 静态信息 + CPU 拓扑（后端 state 未就绪时重试几轮）

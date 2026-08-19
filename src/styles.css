@@ -1043,3 +1043,88 @@ body {
 .u-legend {
   display: none;
 }
+
+/* ---------- 硬件信息弹窗 ---------- */
+
+.hw-box {
+  width: min(760px, 92vw);
+}
+
+.hw-body {
+  display: flex;
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+}
+
+.hw-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+  width: 108px;
+}
+
+.hw-nav button {
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.hw-nav button:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.hw-nav button.active {
+  color: var(--text);
+  background: rgba(56, 189, 248, 0.14);
+}
+
+/* 采不到的分类置灰保留，让用户知道是本机没有而不是功能缺失 */
+.hw-nav button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.hw-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+/* 弹窗里的键值块不需要卡片内那套上下撑满的对齐 */
+.hw-content .kv-rows {
+  flex: none;
+  overflow: visible;
+}
+
+.hw-content .kv-rows > :first-child,
+.hw-content .kv-rows > :last-child {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.hw-content .kv b {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* 长值（IP 列表、指令集）独占整行，否则会在半宽格子里从 IPv6 中间断行 */
+.hw-content .kv.kv-wide {
+  grid-column: 1 / -1;
+}
+
+.hw-content .kv b.na {
+  color: var(--text-faint);
+  font-weight: 400;
+}
