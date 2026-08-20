@@ -12,6 +12,8 @@ let clickSeq = 0;
 /** 点击后的期望状态：后端未达成前，轮询结果不回写按钮（防"落定前闪烁"） */
 let pendingTarget: boolean | null = null;
 let pendingSince = 0;
+/** 勾选待对比的会话；最多两个，超出时挤掉最早勾选的那个 */
+let picked: number[] = [];
 
 function renderRecordBtn(samples?: number) {
   const btn = $("record-btn");
@@ -63,6 +65,14 @@ function fmtDur(a: number, b: number | null): string {
   });
 }
 
+/** 复选框与对比按钮的可用状态跟随 picked */
+function syncPicks() {
+  for (const el of document.querySelectorAll<HTMLInputElement>("input[data-pick]")) {
+    el.checked = picked.includes(Number(el.dataset.pick));
+  }
+  ($("compare-btn") as HTMLButtonElement).disabled = picked.length !== 2;
+}
+
 async function refreshSessions() {
   const list = $("sessions-list");
   const toast = $("export-toast");
@@ -77,6 +87,7 @@ async function refreshSessions() {
     const row = document.createElement("div");
     row.className = "session-row";
     row.innerHTML = `
+      <label class="session-pick"><input type="checkbox" data-pick="${s.id}" /></label>
       <div class="session-info">
         <span>#${s.id} · ${fmtTime(s.started_at)}</span>
         <small>${fmtDur(s.started_at, s.ended_at)} · ${t("sessions.samples", { n: s.samples })}</small>
@@ -89,6 +100,18 @@ async function refreshSessions() {
         <button data-fmt="__del" class="danger" data-i18n="sessions.delete">删除</button>
       </div>`;
     applyStatic(row);
+    const pick = row.querySelector<HTMLInputElement>("input[data-pick]")!;
+    pick.checked = picked.includes(s.id);
+    pick.addEventListener("change", () => {
+      if (pick.checked) {
+        picked.push(s.id);
+        // 勾第三个时挤掉最早的，比弹"最多选两个"更省事
+        if (picked.length > 2) picked.shift();
+      } else {
+        picked = picked.filter((id) => id !== s.id);
+      }
+      syncPicks();
+    });
     row.querySelector(".session-actions")!.addEventListener("click", async (e) => {
       const btn = (e.target as HTMLElement).closest("button");
       if (!btn) return;
@@ -144,7 +167,28 @@ export async function init() {
     $("export-toast").classList.add("hidden");
     modal.classList.remove("hidden");
     await refreshSessions();
+    syncPicks();
   });
+  $("compare-btn").addEventListener("click", async () => {
+    const toast = $("export-toast");
+    if (picked.length !== 2) return;
+    try {
+      const path = await invoke<string>("export_comparison", {
+        sessionA: picked[0],
+        sessionB: picked[1],
+        lang: currentLang(),
+      });
+      toast.textContent = t("sessions.exported", { path });
+      toast.classList.remove("hidden", "error");
+      toast.onclick = () => invoke("open_in_folder", { path });
+    } catch (err) {
+      toast.textContent = t("sessions.exportFailed", { err: String(err) });
+      toast.classList.remove("hidden");
+      toast.classList.add("error");
+      toast.onclick = null;
+    }
+  });
+
   $("open-reports").addEventListener("click", async () => {
     const dir = await invoke<string>("open_reports_dir");
     const toast = $("export-toast");

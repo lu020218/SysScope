@@ -159,6 +159,8 @@ const zh = {
   // 记录按钮与会话弹窗
   "rec.startBtn": "● 记录",
   "sessions.title": "监控会话",
+  "sessions.compare": "对比",
+  "sessions.compare.title": "勾选两个会话后生成对比报告",
   "sessions.openDir": "📁 报告目录",
   "sessions.openDir.title": "打开报告目录",
   "sessions.empty": "暂无会话，点击顶栏「● 记录」开始录制",

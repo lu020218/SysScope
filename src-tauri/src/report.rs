@@ -7,6 +7,7 @@ use std::path::Path;
 const UPLOT_JS: &str = include_str!("../templates/uPlot.iife.min.js");
 const UPLOT_CSS: &str = include_str!("../templates/uPlot.min.css");
 const HTML_TEMPLATE: &str = include_str!("../templates/report.html");
+const COMPARE_TEMPLATE: &str = include_str!("../templates/compare.html");
 
 // ---------- 硬件信息（由前端随导出请求传入） ----------
 //
@@ -112,6 +113,21 @@ struct SessionInfo {
     ended_at: Option<u64>,
 }
 
+fn load_session(conn: &Connection, id: i64, lang: Lang) -> Result<SessionInfo, String> {
+    conn.query_row(
+        "SELECT id, started_at, ended_at FROM sessions WHERE id = ?1",
+        params![id],
+        |r| {
+            Ok(SessionInfo {
+                id: r.get(0)?,
+                started_at: r.get(1)?,
+                ended_at: r.get(2)?,
+            })
+        },
+    )
+    .map_err(|_| tr_fmt(lang, "report.err.noSession", &[("id", &id.to_string())]))
+}
+
 pub fn export(
     conn: &Connection,
     session_id: i64,
@@ -121,21 +137,7 @@ pub fn export(
     hw: &[HwSection],
     full_serials: bool,
 ) -> Result<String, String> {
-    let info = conn
-        .query_row(
-            "SELECT id, started_at, ended_at FROM sessions WHERE id = ?1",
-            params![session_id],
-            |r| {
-                Ok(SessionInfo {
-                    id: r.get(0)?,
-                    started_at: r.get(1)?,
-                    ended_at: r.get(2)?,
-                })
-            },
-        )
-        .map_err(|_| {
-            tr_fmt(lang, "report.err.noSession", &[("id", &session_id.to_string())])
-        })?;
+    let info = load_session(conn, session_id, lang)?;
 
     let rows = load_rows(conn, session_id)?;
     if rows.is_empty() {
@@ -170,6 +172,170 @@ pub fn export(
     std::fs::write(&out_path, content).map_err(|e| e.to_string())?;
     Ok(out_path.to_string_lossy().into_owned())
 }
+
+// ---------- 会话对比 ----------
+//
+// 录制一段会话，多数时候是为了"和另一段比"：换驱动前后、超频前后、
+// 开不开 XMP。单份报告回答不了这个问题，两份报告靠人肉对照也很痛苦。
+
+/// 按会话内相对秒数取值。两段会话的绝对起始时刻不同，必须对齐到相对时间
+/// 才能叠加；直接用绝对时间轴会把两条曲线画到时间轴的两端去。
+fn rel_series(
+    rows: &[Row],
+    start: u64,
+    f: impl Fn(&Row) -> Option<f64>,
+) -> std::collections::BTreeMap<u64, f64> {
+    rows.iter()
+        .filter_map(|r| f(r).map(|v| (r.ts.saturating_sub(start) / 1000, v)))
+        .collect()
+}
+
+/// 两段会话的相对秒数取并集作为公共 x 轴，缺样的一侧填 null。
+/// 不做重采样：重采样会凭空造出原始数据里没有的点，对比结论要靠得住，
+/// 宁可让曲线有断点。
+fn compare_chart(
+    a: &[Row],
+    a_start: u64,
+    b: &[Row],
+    b_start: u64,
+    f: impl Fn(&Row) -> Option<f64> + Copy,
+) -> (Vec<Option<f64>>, Vec<Option<f64>>, Vec<u64>) {
+    let ma = rel_series(a, a_start, f);
+    let mb = rel_series(b, b_start, f);
+    let mut xs: Vec<u64> = ma.keys().chain(mb.keys()).copied().collect();
+    xs.sort_unstable();
+    xs.dedup();
+    let sa = xs.iter().map(|x| ma.get(x).copied()).collect();
+    let sb = xs.iter().map(|x| mb.get(x).copied()).collect();
+    (sa, sb, xs)
+}
+
+pub fn export_comparison(
+    conn: &Connection,
+    a_id: i64,
+    b_id: i64,
+    out_dir: &Path,
+    lang: Lang,
+) -> Result<String, String> {
+    if a_id == b_id {
+        return Err(tr(lang, "compare.err.same").into());
+    }
+    let ia = load_session(conn, a_id, lang)?;
+    let ib = load_session(conn, b_id, lang)?;
+    let ra = load_rows(conn, a_id)?;
+    let rb = load_rows(conn, b_id)?;
+    if ra.is_empty() || rb.is_empty() {
+        return Err(tr(lang, "report.err.noData").into());
+    }
+
+    // 统计对比：stat_rows 两边同序，可按下标配对
+    let sa = stat_rows(&ra, lang);
+    let sb = stat_rows(&rb, lang);
+    let mut table = String::new();
+    for ((name, unit, x), (_, _, y)) in sa.iter().zip(sb.iter()) {
+        let cell = |v: &Option<Stats>| match v {
+            Some(st) => format!("{:.1}{unit}", st.avg),
+            None => "—".to_string(),
+        };
+        let (delta, cls) = match (x, y) {
+            (Some(p), Some(q)) => {
+                let d = q.avg - p.avg;
+                // 基线接近 0 时百分比没有意义（除以噪声会得到几千个百分点）
+                let pct = if p.avg.abs() > 1e-6 {
+                    format!(" ({:+.1}%)", d / p.avg * 100.0)
+                } else {
+                    String::new()
+                };
+                // 只标注幅度，不判断"好坏"：FPS 涨是好事，温度涨不是，
+                // 报告不替用户下这个结论
+                let cls = if p.avg.abs() > 1e-6 && (d / p.avg).abs() >= 0.05 {
+                    r#" class="sig""#
+                } else {
+                    ""
+                };
+                (format!("{d:+.1}{unit}{pct}"), cls)
+            }
+            _ => ("—".to_string(), ""),
+        };
+        table.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td{}>{}</td></tr>",
+            esc(name),
+            esc(&cell(x)),
+            esc(&cell(y)),
+            cls,
+            esc(&delta)
+        ));
+    }
+
+    let chart = |f: fn(&Row) -> Option<f64>| {
+        let (ca, cb, xs) = compare_chart(&ra, ia.started_at, &rb, ib.started_at, f);
+        serde_json::json!({ "x": xs, "a": ca, "b": cb })
+    };
+    let data = serde_json::json!({
+        "cpu": chart(|r| r.cpu_total),
+        "cpuTemp": chart(|r| r.cpu_temp),
+        "gpu": chart(|r| r.gpu_util),
+        "gpuTemp": chart(|r| r.gpu_temp),
+        "fps": chart(|r| r.fps),
+        "mem": chart(mem_pct),
+    });
+
+    let meta = |i: &SessionInfo, rows: &[Row]| {
+        format!(
+            "#{} · {} · {} · {}",
+            i.id,
+            fmt_ts(i.started_at),
+            fmt_duration(i, rows, lang),
+            tr_fmt(lang, "compare.samples", &[("n", &rows.len().to_string())])
+        )
+    };
+
+    let html = COMPARE_TEMPLATE
+        .replace(
+            "__TITLE__",
+            &tr_fmt(
+                lang,
+                "compare.title",
+                &[("a", &a_id.to_string()), ("b", &b_id.to_string())],
+            ),
+        )
+        .replace("__META_A__", &esc(&meta(&ia, &ra)))
+        .replace("__META_B__", &esc(&meta(&ib, &rb)))
+        .replace("__TABLE__", &table)
+        .replace("__UPLOT_CSS__", UPLOT_CSS)
+        .replace("__UPLOT_JS__", UPLOT_JS)
+        .replace("__DATA__", &escape_json_for_script(data.to_string()));
+    let html = COMPARE_STRINGS
+        .iter()
+        .fold(html, |acc, (token, key)| acc.replace(token, tr(lang, key)));
+
+    let out_path = out_dir.join(format!(
+        "compare{}_{}_{}.html",
+        a_id,
+        b_id,
+        fmt_ts_file(ia.started_at)
+    ));
+    std::fs::write(&out_path, html).map_err(|e| e.to_string())?;
+    Ok(out_path.to_string_lossy().into_owned())
+}
+
+const COMPARE_STRINGS: &[(&str, &str)] = &[
+    ("__T_LANGCODE__", "report.langCode"),
+    ("__T_PRINT__", "report.print"),
+    ("__T_SESSION_A__", "compare.sessionA"),
+    ("__T_SESSION_B__", "compare.sessionB"),
+    ("__T_STATS_H__", "compare.statsHeading"),
+    ("__T_CHARTS_H__", "compare.chartsHeading"),
+    ("__T_CHARTS_NOTE__", "compare.chartsNote"),
+    ("__T_COL_METRIC__", "report.col.metric"),
+    ("__T_COL_DELTA__", "compare.col.delta"),
+    ("__T_CHART_CPU__", "compare.chart.cpu"),
+    ("__T_CHART_CPUTEMP__", "compare.chart.cpuTemp"),
+    ("__T_CHART_GPU__", "compare.chart.gpu"),
+    ("__T_CHART_GPUTEMP__", "compare.chart.gpuTemp"),
+    ("__T_CHART_FPS__", "compare.chart.fps"),
+    ("__T_CHART_MEM__", "compare.chart.mem"),
+];
 
 /// 会话期间触发的告警。metric 存的是 i18n key，此处按报告语言翻译。
 #[derive(Serialize)]
@@ -830,6 +996,90 @@ mod tests {
         assert!(std::fs::read_to_string(&path)
             .unwrap()
             .contains("240436541701519"));
+    }
+
+    /// 对比的核心正确性：两段会话起止时刻不同，必须按会话内相对时间对齐。
+    /// 若误用绝对时间轴，两条曲线会被画到时间轴的两端，图表毫无意义。
+    #[test]
+    fn curves_align_on_relative_time_not_wall_clock() {
+        let mk = |start: u64, vals: &[f64]| -> Vec<super::Row> {
+            vals.iter()
+                .enumerate()
+                .map(|(i, v)| super::Row {
+                    ts: start + (i as u64) * 1000,
+                    cpu_total: Some(*v),
+                    ..Default::default()
+                })
+                .collect()
+        };
+        // B 比 A 晚一整天开始，但两段都是从第 0 秒起、每秒一个采样
+        let a = mk(1_000_000, &[10.0, 20.0, 30.0]);
+        let b = mk(1_000_000 + 86_400_000, &[40.0, 50.0, 60.0]);
+
+        let (sa, sb, xs) =
+            super::compare_chart(&a, 1_000_000, &b, 1_000_000 + 86_400_000, |r| r.cpu_total);
+        assert_eq!(xs, vec![0, 1, 2], "x axis should be relative seconds");
+        assert_eq!(sa, vec![Some(10.0), Some(20.0), Some(30.0)]);
+        assert_eq!(sb, vec![Some(40.0), Some(50.0), Some(60.0)]);
+    }
+
+    /// 长度不同的会话取并集，缺样一侧留 None（图上是断点），不做重采样 ——
+    /// 重采样会凭空造出原始数据里没有的点
+    #[test]
+    fn uneven_sessions_leave_gaps_rather_than_invent_points() {
+        let a: Vec<super::Row> = (0..4)
+            .map(|i| super::Row {
+                ts: i * 1000,
+                cpu_total: Some(i as f64),
+                ..Default::default()
+            })
+            .collect();
+        let b: Vec<super::Row> = (0..2)
+            .map(|i| super::Row {
+                ts: i * 1000,
+                cpu_total: Some(100.0 + i as f64),
+                ..Default::default()
+            })
+            .collect();
+        let (sa, sb, xs) = super::compare_chart(&a, 0, &b, 0, |r| r.cpu_total);
+        assert_eq!(xs.len(), 4);
+        assert_eq!(sa.len(), 4);
+        assert_eq!(sb, vec![Some(100.0), Some(101.0), None, None]);
+    }
+
+    #[test]
+    fn comparison_report_renders_both_sessions() {
+        let dir = std::env::temp_dir().join("sysscope-test-compare");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (db_path, sid_a) = make_test_db(&dir);
+        let conn = open_db(&db_path).unwrap();
+        // 造第二段会话：起始时刻不同，数值明显更高
+        conn.execute("INSERT INTO sessions (started_at, ended_at) VALUES (500000, 560000)", [])
+            .unwrap();
+        let sid_b = conn.last_insert_rowid();
+        for i in 0..30 {
+            conn.execute(
+                "INSERT INTO samples (session_id, ts, cpu_total, mem_used, mem_total)
+                 VALUES (?1, ?2, ?3, 8000, 16000)",
+                rusqlite::params![sid_b, 500000 + i * 1000, 70.0 + (i % 5) as f64],
+            )
+            .unwrap();
+        }
+
+        let path =
+            super::export_comparison(&conn, sid_a, sid_b, &dir, Lang::En).unwrap();
+        let html = std::fs::read_to_string(&path).unwrap();
+        assert!(html.contains("Session A") && html.contains("Session B"));
+        assert!(html.contains("Metric comparison"));
+        assert!(!html.contains("__T_"), "unreplaced placeholder");
+        assert!(html.contains("uPlot"), "not self-contained");
+        // 差值列必须带正负号，方向靠符号表达而不是靠颜色
+        assert!(html.contains("+") , "delta sign missing");
+
+        // 同一会话与自己对比是无意义的，应当明确报错
+        let err = super::export_comparison(&conn, sid_a, sid_a, &dir, Lang::En).unwrap_err();
+        assert_eq!(err, "Pick two different sessions");
     }
 
     /// 会话期间的告警必须出现在报告里 —— 否则录制时弹过的通知事后无处可查

@@ -226,6 +226,7 @@ pub fn run() {
             recorder::list_sessions,
             recorder::delete_session,
             recorder::export_report,
+            recorder::export_comparison,
             recorder::open_in_folder,
             recorder::open_reports_dir
         ])

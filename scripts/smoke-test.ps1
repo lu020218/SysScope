@@ -257,9 +257,14 @@ if ($hMain -ne [IntPtr]::Zero) {
 # ---------- 3. screenshot: does the panel render content? ----------
 $shot = Join-Path $env:TEMP "sysscope_smoke.png"
 if ($hMain -ne [IntPtr]::Zero) {
-    # WebView2 suspends rendering when its window is fully occluded, so PrintWindow
-    # would capture a blank frame if anything covers the panel. Raise it first, then
-    # retry: the first frame after being uncovered can still be mid-paint.
+    # PrintWindow drives WM_PRINT, and UIPI blocks a lower-integrity process from
+    # sending that to an elevated window (WM_NULL above is allowed, which is why the
+    # responsiveness check still works). From a non-elevated shell the capture comes
+    # back blank no matter what the app is doing, so a blank result there says nothing
+    # about the build -- it is reported as SKIP rather than FAIL below.
+    # Raising the window first still helps when we *are* elevated: WebView2 suspends
+    # rendering while fully occluded. SetForegroundWindow is best-effort -- Windows
+    # denies focus stealing from a background process.
     [SmokeWin]::ShowWindow($hMain, 9) | Out-Null   # SW_RESTORE
     [SmokeWin]::SetForegroundWindow($hMain) | Out-Null
 
@@ -289,7 +294,15 @@ if ($hMain -ne [IntPtr]::Zero) {
         $g.Dispose(); $bmp.Dispose()
         if ($colors.Count -ge 12) { break }
     }
-    Check "panel renders content" ($colors.Count -ge 12) ("{0} distinct tones after {1} attempt(s)" -f $colors.Count, $attempt)
+    if ($colors.Count -ge 12) {
+        Check "panel renders content" $true ("{0} distinct tones" -f $colors.Count)
+    } elseif (-not $isAdmin) {
+        Write-Host ("[SKIP] panel renders content   blank capture, but UIPI blocks WM_PRINT from a") -ForegroundColor DarkGray
+        Write-Host ("                               non-elevated shell to an elevated window --") -ForegroundColor DarkGray
+        Write-Host ("                               inconclusive, not a failure. Re-run elevated.") -ForegroundColor DarkGray
+    } else {
+        Check "panel renders content" $false ("{0} distinct tones after {1} attempt(s)" -f $colors.Count, $attempt)
+    }
 }
 
 # ---------- 4. sampler is actually running ----------

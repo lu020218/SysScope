@@ -166,6 +166,8 @@ const en: Record<Keys, string> = {
   // Record button and sessions dialog
   "rec.startBtn": "● Record",
   "sessions.title": "Recorded sessions",
+  "sessions.compare": "Compare",
+  "sessions.compare.title": "Tick two sessions to generate a comparison report",
   "sessions.openDir": "📁 Reports folder",
   "sessions.openDir.title": "Open the reports folder",
   "sessions.empty": "No sessions yet — hit “● Record” in the toolbar to start",

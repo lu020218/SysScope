@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="__T_LANGCODE__">
+<head>
+<meta charset="UTF-8" />
+<title>__TITLE__</title>
+<style>__UPLOT_CSS__</style>
+<style>
+:root {
+  --bg: #0e1116; --panel: #171b22; --border: #232a35;
+  --text: #e6e9ef; --dim: #8b93a1; --a: #38bdf8; --b: #fb923c;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  padding: 24px; max-width: 1080px; margin: 0 auto;
+}
+h1 { font-size: 22px; margin-bottom: 12px; }
+h2 { font-size: 15px; color: var(--dim); margin: 26px 0 10px; text-transform: uppercase; letter-spacing: 1px; }
+.sessions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
+.sess { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+.sess .tag { font-weight: 700; margin-right: 8px; }
+.sess.a .tag { color: var(--a); }
+.sess.b .tag { color: var(--b); }
+.note { color: var(--dim); font-size: 12px; margin-bottom: 10px; }
+.toolbar { margin: 10px 0 4px; }
+.toolbar button {
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+}
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { border: 1px solid var(--border); padding: 7px 12px; text-align: left; }
+th { background: var(--panel); color: var(--dim); font-weight: 600; }
+/* 只标注"变化明显"，不判断好坏：FPS 涨是好事，温度涨不是 */
+td.sig { color: #facc15; font-weight: 600; }
+.chart-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+.chart-box h3 { font-size: 13px; color: var(--dim); margin-bottom: 8px; }
+.u-legend { color: var(--dim); font-size: 12px; }
+@media print {
+  body { background: #fff; color: #111; }
+  .toolbar { display: none; }
+  .chart-box, .sess { border-color: #ccc; background: #fff; break-inside: avoid; }
+  th, td { border-color: #ccc; }
+  th { background: #f2f2f2; color: #333; }
+  h2, .note { color: #555; }
+  .u-legend { color: #555; }
+}
+</style>
+</head>
+<body>
+<h1>__TITLE__</h1>
+<div class="sessions">
+  <div class="sess a"><span class="tag">__T_SESSION_A__</span>__META_A__</div>
+  <div class="sess b"><span class="tag">__T_SESSION_B__</span>__META_B__</div>
+</div>
+<div class="toolbar"><button onclick="window.print()">__T_PRINT__</button></div>
+
+<h2>__T_STATS_H__</h2>
+<table>
+  <thead><tr><th>__T_COL_METRIC__</th><th>__T_SESSION_A__</th><th>__T_SESSION_B__</th><th>__T_COL_DELTA__</th></tr></thead>
+  <tbody>__TABLE__</tbody>
+</table>
+
+<h2>__T_CHARTS_H__</h2>
+<div class="note">__T_CHARTS_NOTE__</div>
+<div class="chart-box"><h3>__T_CHART_CPU__</h3><div id="c-cpu"></div></div>
+<div class="chart-box"><h3>__T_CHART_CPUTEMP__</h3><div id="c-cputemp"></div></div>
+<div class="chart-box"><h3>__T_CHART_GPU__</h3><div id="c-gpu"></div></div>
+<div class="chart-box"><h3>__T_CHART_GPUTEMP__</h3><div id="c-gputemp"></div></div>
+<div class="chart-box"><h3>__T_CHART_FPS__</h3><div id="c-fps"></div></div>
+<div class="chart-box"><h3>__T_CHART_MEM__</h3><div id="c-mem"></div></div>
+
+<script>__UPLOT_JS__</script>
+<script>
+const D = __DATA__;
+const charts = [];
+function axis(fmt) {
+  return { stroke: "#8b93a1", grid: { stroke: "#232a35" }, ticks: { show: false },
+           values: fmt ? (u, vs) => vs.map(fmt) : undefined };
+}
+// x 轴是会话内相对秒数，不是绝对时间：两段会话起止时刻不同，
+// 只有对齐到相对时间才能叠加比较
+function mmss(s) {
+  const m = Math.floor(s / 60), r = Math.floor(s % 60);
+  return m + ":" + String(r).padStart(2, "0");
+}
+function mk(elId, series, yFmt) {
+  const el = document.getElementById(elId);
+  const opts = {
+    width: el.clientWidth || 1000, height: 200,
+    scales: { x: { time: false } },
+    axes: [axis(mmss), axis(yFmt)],
+    series: [
+      {},
+      { label: "__T_SESSION_A__", stroke: "#38bdf8", width: 1.5, points: { show: false } },
+      { label: "__T_SESSION_B__", stroke: "#fb923c", width: 1.5, dash: [4, 4], points: { show: false } },
+    ],
+  };
+  charts.push([new uPlot(opts, [series.x, series.a, series.b], el), el]);
+}
+mk("c-cpu", D.cpu, v => v + "%");
+mk("c-cputemp", D.cpuTemp, v => v + "°");
+mk("c-gpu", D.gpu, v => v + "%");
+mk("c-gputemp", D.gpuTemp, v => v + "°");
+mk("c-fps", D.fps);
+mk("c-mem", D.mem, v => v + "%");
+addEventListener("resize", () => {
+  for (const [c, el] of charts) c.setSize({ width: el.clientWidth, height: 200 });
+});
+</script>
+</body>
+</html>

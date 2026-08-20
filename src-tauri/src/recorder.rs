@@ -362,6 +362,27 @@ pub fn export_report(
     )
 }
 
+/// 生成两段会话的对比报告。录制多数时候是为了"和另一段比"：换驱动前后、
+/// 超频前后、开不开 XMP —— 单份报告回答不了这个问题。
+#[tauri::command]
+pub fn export_comparison(
+    db: State<DbPath>,
+    reports: State<ReportsDir>,
+    session_a: i64,
+    session_b: i64,
+    lang: String,
+) -> Result<String, String> {
+    let conn = open_db(&db.0).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&reports.0).map_err(|e| e.to_string())?;
+    crate::report::export_comparison(
+        &conn,
+        session_a,
+        session_b,
+        &reports.0,
+        crate::i18n::Lang::parse(&lang),
+    )
+}
+
 /// 一次性迁移：把旧 AppData/reports 下的报告复制到新的文档目录。
 /// 用 read+write 而非 copy，使目标文件继承非加密目录的属性（脱离 EFS）。
 pub fn migrate_legacy_reports(old_dir: &Path, new_dir: &Path) {
