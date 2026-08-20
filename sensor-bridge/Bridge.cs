@@ -52,6 +52,11 @@ public static class Bridge
                     IsCpuEnabled = true,
                     IsStorageEnabled = true,
                     IsGpuEnabled = true,
+                    // 主板域提供机箱风扇转速与 VRM / 芯片组温度 —— 回答
+                    // "CPU 降频是不是因为供电过热"这类问题，其余数据源给不出。
+                    // 这些传感器挂在主板的 SubHardware（SuperIO 芯片）下，
+                    // 不在 Motherboard 硬件本身上。
+                    IsMotherboardEnabled = true,
                 };
                 computer.Open();
                 _computer = computer;
@@ -146,6 +151,107 @@ public static class Bridge
     private static void AppendNum(StringBuilder sb, float v)
     {
         sb.Append(v.ToString("0.##", CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// 主板 SuperIO 传感器（风扇转速、VRM/芯片组温度），与每拍调用的
+    /// SensorsJson 分开导出。
+    ///
+    /// 分开的原因：SuperIO 读取走 LPC/EC 端口 I/O，比其余传感器慢一个量级，
+    /// 而风扇转速与主板温度本身变化缓慢 —— 每拍读它没有任何收益，只有代价。
+    /// 调用方按秒级而非按拍轮询即可。
+    ///
+    /// 结构：{"name":"...","fans":[{"name":"..","rpm":1200}],"temps":[{"name":"..","value":42}]}
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "sysscope_board_json")]
+    public static unsafe int BoardJson(byte* buf, int len)
+    {
+        try
+        {
+            lock (Lock)
+            {
+                if (_computer == null || buf == null || len <= 0)
+                {
+                    return -1;
+                }
+                var fans = new StringBuilder();
+                var temps = new StringBuilder();
+                bool firstFan = true, firstTemp = true;
+                string boardName = "";
+
+                foreach (var hw in _computer.Hardware)
+                {
+                    if (hw.HardwareType != HardwareType.Motherboard)
+                    {
+                        continue;
+                    }
+                    boardName = hw.Name;
+                    // 主板本身不带传感器，读数都在 SuperIO 子硬件上
+                    foreach (var sub in hw.SubHardware)
+                    {
+                        sub.Update();
+                        foreach (var s in sub.Sensors)
+                        {
+                            if (s.Value is not { } v)
+                            {
+                                continue;
+                            }
+                            var value = (float)v;
+                            // 未接风扇的接口报 0 转，列出来只是噪音
+                            if (s.SensorType == SensorType.Fan && value > 0f)
+                            {
+                                if (!firstFan)
+                                {
+                                    fans.Append(',');
+                                }
+                                firstFan = false;
+                                fans.Append("{\"name\":");
+                                AppendJsonString(fans, s.Name);
+                                fans.Append(",\"rpm\":");
+                                AppendNum(fans, value);
+                                fans.Append('}');
+                            }
+                            else if (s.SensorType == SensorType.Temperature && value > 0f)
+                            {
+                                if (!firstTemp)
+                                {
+                                    temps.Append(',');
+                                }
+                                firstTemp = false;
+                                temps.Append("{\"name\":");
+                                AppendJsonString(temps, s.Name);
+                                temps.Append(",\"value\":");
+                                AppendNum(temps, value);
+                                temps.Append('}');
+                            }
+                        }
+                    }
+                }
+
+                var sb = new StringBuilder(512);
+                sb.Append("{\"name\":");
+                AppendJsonString(sb, boardName);
+                sb.Append(",\"fans\":[").Append(fans).Append("],");
+                sb.Append("\"temps\":[").Append(temps).Append("]}");
+
+                var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+                if (bytes.Length >= len)
+                {
+                    return -1;
+                }
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    buf[i] = bytes[i];
+                }
+                buf[bytes.Length] = 0;
+                return bytes.Length;
+            }
+        }
+        catch (Exception e)
+        {
+            _lastError = e.ToString();
+            return -1;
+        }
     }
 
     /// <summary>

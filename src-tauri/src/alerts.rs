@@ -117,7 +117,7 @@ impl AlertWatcher {
         let max_of = |it: &mut dyn Iterator<Item = f64>| {
             it.fold(f64::NAN, f64::max).pipe_finite()
         };
-        self.evaluate(Readings {
+        self.evaluate(&CONFIG.lock().unwrap().clone(), Readings {
             cpu: Some(s.cpu.total as f64),
             cpu_temp: s.cpu.temp_c.map(|v| v as f64),
             mem: (s.mem.total > 0)
@@ -127,8 +127,10 @@ impl AlertWatcher {
         })
     }
 
-    pub fn evaluate(&mut self, r: Readings) -> Vec<Alert> {
-        let cfg = CONFIG.lock().unwrap().clone();
+    /// 配置由调用方传入而非在此读全局：判定逻辑因此不依赖进程级状态，
+    /// 测试可以并行跑而不互相干扰（Rust 默认多线程执行测试，共享可变全局
+    /// 会让断言随调度时机时对时错）。
+    pub fn evaluate(&mut self, cfg: &AlertConfig, r: Readings) -> Vec<Alert> {
         if !cfg.enabled {
             return Vec::new();
         }
@@ -163,6 +165,30 @@ impl FiniteExt for f64 {
     fn pipe_finite(self) -> Option<f64> {
         self.is_finite().then_some(self)
     }
+}
+
+/// 弹出系统通知。失败静默忽略 —— 通知权限被关、或运行在未安装的
+/// 开发构建下（Windows 的 toast 需要已注册的 AppUserModelID）时，
+/// 不应该影响监控本身。
+pub fn notify(app: &tauri::AppHandle, alert: &Alert) {
+    use tauri_plugin_notification::NotificationExt;
+    let lang = crate::i18n::current();
+    let body = crate::i18n::tr_fmt(
+        lang,
+        "alert.body",
+        &[
+            ("metric", crate::i18n::tr(lang, &alert.metric)),
+            ("value", &format!("{:.0}", alert.value)),
+            ("threshold", &format!("{:.0}", alert.threshold)),
+            ("unit", &alert.unit),
+        ],
+    );
+    let _ = app
+        .notification()
+        .builder()
+        .title(crate::i18n::tr(lang, "alert.title"))
+        .body(body)
+        .show();
 }
 
 #[cfg(test)]
@@ -207,74 +233,52 @@ mod tests {
 
     #[test]
     fn disabled_config_emits_nothing() {
-        set_alert_config(AlertConfig {
+        let cfg = AlertConfig {
             enabled: false,
             ..AlertConfig::default()
-        });
+        };
         let mut w = AlertWatcher::default();
-        let alerts = w.evaluate(Readings {
-            cpu: Some(100.0),
-            cpu_temp: Some(120.0),
-            ..Readings::default()
-        });
+        let alerts = w.evaluate(
+            &cfg,
+            Readings {
+                cpu: Some(100.0),
+                cpu_temp: Some(120.0),
+                ..Readings::default()
+            },
+        );
         assert!(alerts.is_empty());
-        set_alert_config(AlertConfig::default());
     }
 
     #[test]
     fn missing_readings_never_alert() {
-        set_alert_config(AlertConfig {
+        let cfg = AlertConfig {
             dwell_secs: 0,
             ..AlertConfig::default()
-        });
+        };
         let mut w = AlertWatcher::default();
         // 没有温度传感器的机器上 cpu_temp 恒为 None，不该被当成 0 或误报
-        let alerts = w.evaluate(Readings::default());
-        assert!(alerts.is_empty());
-        set_alert_config(AlertConfig::default());
+        assert!(w.evaluate(&cfg, Readings::default()).is_empty());
     }
 
     #[test]
     fn alert_carries_metric_key_and_unit() {
-        set_alert_config(AlertConfig {
+        let cfg = AlertConfig {
             dwell_secs: 0,
             cpu_temp: 95.0,
             ..AlertConfig::default()
-        });
+        };
         let mut w = AlertWatcher::default();
-        let alerts = w.evaluate(Readings {
-            cpu_temp: Some(97.5),
-            ..Readings::default()
-        });
+        let alerts = w.evaluate(
+            &cfg,
+            Readings {
+                cpu_temp: Some(97.5),
+                ..Readings::default()
+            },
+        );
         assert_eq!(alerts.len(), 1);
         // metric 是 i18n key 而非本地化文案，翻译在前端/报告侧完成
         assert_eq!(alerts[0].metric, "alert.metric.cpuTemp");
         assert_eq!(alerts[0].unit, "°C");
         assert_eq!(alerts[0].threshold, 95.0);
-        set_alert_config(AlertConfig::default());
     }
-}
-
-/// 弹出系统通知。失败静默忽略 —— 通知权限被关、或运行在未安装的
-/// 开发构建下（Windows 的 toast 需要已注册的 AppUserModelID）时，
-/// 不应该影响监控本身。
-pub fn notify(app: &tauri::AppHandle, alert: &Alert) {
-    use tauri_plugin_notification::NotificationExt;
-    let lang = crate::i18n::current();
-    let body = crate::i18n::tr_fmt(
-        lang,
-        "alert.body",
-        &[
-            ("metric", crate::i18n::tr(lang, &alert.metric)),
-            ("value", &format!("{:.0}", alert.value)),
-            ("threshold", &format!("{:.0}", alert.threshold)),
-            ("unit", &alert.unit),
-        ],
-    );
-    let _ = app
-        .notification()
-        .builder()
-        .title(crate::i18n::tr(lang, "alert.title"))
-        .body(body)
-        .show();
 }

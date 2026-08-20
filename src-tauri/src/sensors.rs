@@ -22,6 +22,24 @@ pub struct SensorData {
     pub storage: Vec<StorageTemp>,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Clone, Default)]
+pub struct BoardSensors {
+    pub name: String,
+    /// 已接风扇的转速；未接的接口报 0 转，桥接侧已过滤
+    #[serde(default)]
+    pub fans: Vec<NamedValue>,
+    /// 主板温度点（VRM、芯片组、PCH 等，命名随主板而异）
+    #[serde(default)]
+    pub temps: Vec<NamedValue>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct NamedValue {
+    pub name: String,
+    #[serde(alias = "rpm", alias = "value")]
+    pub value: f32,
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct StorageTemp {
     pub name: String,
@@ -38,6 +56,9 @@ pub struct SensorBridge {
     /// 保持库加载，函数指针的生命周期依赖它
     _lib: Library,
     sensors_json: unsafe extern "C" fn(*mut u8, i32) -> i32,
+    /// 可选：旧版 DLL 没有这个导出。缺失时主板传感器不可用，
+    /// 但其余传感器照常工作 —— 不因为一个新导出缺失就让整个桥失效
+    board_json: Option<unsafe extern "C" fn(*mut u8, i32) -> i32>,
     shutdown: unsafe extern "C" fn(),
 }
 
@@ -59,6 +80,10 @@ impl SensorBridge {
             let sensors_json = *lib
                 .get::<unsafe extern "C" fn(*mut u8, i32) -> i32>(b"sysscope_sensors_json")
                 .ok()?;
+            let board_json = lib
+                .get::<unsafe extern "C" fn(*mut u8, i32) -> i32>(b"sysscope_board_json")
+                .ok()
+                .map(|f| *f);
             let shutdown = *lib
                 .get::<unsafe extern "C" fn()>(b"sysscope_sensors_shutdown")
                 .ok()?;
@@ -66,6 +91,7 @@ impl SensorBridge {
             Some(SensorBridge {
                 _lib: lib,
                 sensors_json,
+                board_json,
                 shutdown,
             })
         }
@@ -78,6 +104,19 @@ impl SensorBridge {
             return SensorData::default();
         }
         serde_json::from_slice(&buf[..n as usize]).unwrap_or_default()
+    }
+
+    /// 主板 SuperIO 传感器。与 read() 分开，且**不应每拍调用** ——
+    /// SuperIO 走 LPC/EC 端口 I/O，比其余传感器慢一个量级，而风扇转速与
+    /// 主板温度本身变化缓慢，秒级轮询足够。
+    pub fn read_board(&self) -> Option<BoardSensors> {
+        let f = self.board_json?;
+        let mut buf = vec![0u8; 8192];
+        let n = unsafe { f(buf.as_mut_ptr(), buf.len() as i32) };
+        if n <= 0 {
+            return None;
+        }
+        serde_json::from_slice(&buf[..n as usize]).ok()
     }
 }
 
@@ -122,6 +161,55 @@ fn locate_dll() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 手动诊断：打印本机主板传感器与单次读取耗时。
+    /// 主板域读的是 SuperIO 芯片，走 LPC/EC 端口 I/O，比其余传感器慢得多，
+    /// 而它每拍都会被调用 —— 接入前必须先量清楚代价。
+    ///   cargo test --lib board_sensors_dump -- --ignored --nocapture
+    #[test]
+    #[ignore = "hw: 手动诊断，打印主板传感器与耗时"]
+    fn board_sensors_dump() {
+        let Some(bridge) = SensorBridge::init() else {
+            println!("sensor bridge unavailable (needs admin), skipping");
+            return;
+        };
+        // 首次读取含驱动预热，量第二次起
+        let _ = bridge.read();
+        let _ = bridge.read_board();
+        let mut worst_all = std::time::Duration::ZERO;
+        let mut worst_board = std::time::Duration::ZERO;
+        let mut data = SensorData::default();
+        let mut board = None;
+        for _ in 0..5 {
+            let t0 = std::time::Instant::now();
+            data = bridge.read();
+            worst_all = worst_all.max(t0.elapsed());
+            let t1 = std::time::Instant::now();
+            board = bridge.read_board();
+            worst_board = worst_board.max(t1.elapsed());
+        }
+        match &board {
+            Some(b) => {
+                println!("board: {}", b.name);
+                println!("  fans:");
+                for f in &b.fans {
+                    println!("    {:<28} {:.0} RPM", f.name, f.value);
+                }
+                println!("  temps:");
+                for t in &b.temps {
+                    println!("    {:<28} {:.1} C", t.name, t.value);
+                }
+            }
+            None => println!("no motherboard sensors reported"),
+        }
+        // 两个耗时分开量：前者每拍都付，后者按 BOARD_REFRESH 秒级付一次
+        println!(
+            "cpu_temp: {:?}
+  per-tick sensors.read(): {worst_all:?}
+  board read (low freq): {worst_board:?}",
+            data.cpu_temp
+        );
+    }
 
     /// 需要管理员权限（内核驱动）；无权限或 DLL 缺失时跳过断言
     #[test]

@@ -4,6 +4,7 @@ import "uplot/dist/uPlot.min.css";
 import "./styles.css";
 
 import * as cpu from "./cards/cpu";
+import * as board from "./cards/board";
 import * as disk from "./cards/disk";
 import * as gpu from "./cards/gpu";
 import * as mem from "./cards/mem";
@@ -103,6 +104,7 @@ async function main() {
     gpu.update(s, th, ts, start);
     disk.update(s, ts, start);
     net.update(s, ts, start);
+    board.update(s);
     procs.update(s);
   });
 

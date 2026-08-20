@@ -130,6 +130,8 @@ pub struct Snapshot {
     pub storage: StorageSnapshot,
     /// 硬盘温度（来源 LHM，与 storage.disks 不做强关联）
     pub storage_temps: Vec<StorageTemp>,
+    /// 主板风扇与温度（低频刷新，见 SamplerCtx::board）
+    pub board: Option<crate::sensors::BoardSensors>,
     pub top_cpu: Vec<ProcStat>,
     pub top_mem: Vec<ProcStat>,
     pub top_net: Vec<ProcNetStat>,
@@ -173,7 +175,15 @@ pub struct SamplerCtx {
     pub net_ext: NetExtSampler,
     /// 会话内 CPU 峰值功耗
     pub power_peak: f32,
+    /// 主板 SuperIO 读数与上次刷新时刻。SuperIO 走 LPC/EC 端口 I/O，比其余
+    /// 传感器慢一个量级；而风扇转速与主板温度变化缓慢，秒级刷新足够，
+    /// 每拍去读只有代价没有收益。
+    pub board: Option<crate::sensors::BoardSensors>,
+    pub board_at: Option<Instant>,
 }
+
+/// 主板传感器的刷新间隔
+const BOARD_REFRESH: Duration = Duration::from_secs(5);
 
 impl SamplerCtx {
     /// 必须在采样线程内构造（WMI 静态查询依赖线程 COM 环境）
@@ -215,6 +225,8 @@ impl SamplerCtx {
             cpu_perf,
             gpu_proc,
             sensors,
+            board: None,
+            board_at: None,
             ping: PingProber::spawn(),
             netproc: netproc_handle.join().unwrap_or_else(|_| {
                 eprintln!("[sysscope] netproc init thread panicked");
@@ -354,6 +366,17 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
     ctx.pdh.collect();
     ctx.sys.refresh_specifics(refresh_kind());
     let fps_snapshot = ctx.fps.sample(&mut ctx.sys);
+    // 主板传感器低频刷新：过期才重读，否则沿用上次结果
+    let board_stale = ctx
+        .board_at
+        .map(|t| t.elapsed() >= BOARD_REFRESH)
+        .unwrap_or(true);
+    if board_stale {
+        if let Some(b) = ctx.sensors.as_ref().and_then(|s| s.read_board()) {
+            ctx.board = Some(b);
+        }
+        ctx.board_at = Some(Instant::now());
+    }
     let sensor_data = ctx
         .sensors
         .as_ref()
@@ -419,6 +442,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
         },
         storage: ctx.disk.sample(),
         storage_temps: sensor_data.storage,
+        board: ctx.board.clone(),
         top_net: ctx.netproc.sample(&ctx.sys, elapsed_secs),
         top_cpu: tops.top_cpu,
         top_mem: tops.top_mem,

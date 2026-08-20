@@ -193,6 +193,11 @@ export interface Snapshot {
   fps: FpsSnapshot;
   net: NetSnapshot;
   storage: StorageSnapshot;
+  board: {
+    name: string;
+    fans: { name: string; value: number }[];
+    temps: { name: string; value: number }[];
+  } | null;
   storage_temps: StorageTemp[];
   top_cpu: ProcStat[];
   top_mem: ProcStat[];

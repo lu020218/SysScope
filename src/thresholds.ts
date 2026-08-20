@@ -18,6 +18,8 @@ export const DEFAULTS: Thresholds = {
 
 /** 非用户可配的固定告警阈值（全部集中于此，勿在卡片内散写魔数） */
 export const FIXED = {
+  /** 主板温度点告警线（VRM/芯片组普遍比 CPU 低，80°C 已属偏高） */
+  boardTempC: 80,
   /** 硬页面错误率（次/秒），超过视为内存换页压力 */
   hardFaultsPs: 200,
   /** 提交内存占提交上限比例 % */
