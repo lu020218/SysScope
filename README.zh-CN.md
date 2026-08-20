@@ -100,7 +100,7 @@ cd sensor-bridge && dotnet publish -c Release -r win-x64
 ### 测试
 
 ```bash
-cd src-tauri && cargo test                        # 41 项纯逻辑测试，CI 可跑
+cd src-tauri && cargo test                        # 50 项纯逻辑测试，CI 可跑
 cd src-tauri && cargo test -- --include-ignored   # 追加 11 项需真实硬件的测试
 node scripts/check-i18n.mjs                       # 校验翻译 key 是否齐整
 ```
@@ -113,6 +113,10 @@ node scripts/check-i18n.mjs                       # 校验翻译 key 是否齐�
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
+
+请在**已提权**的 shell 中运行。程序会自我提权，非提权 shell 事后杀不掉这个
+提权实例，下一轮启动会被单实例插件折回残留实例，从而在毫不知情的情况下
+测量了错误的进程。
 
 ---
 

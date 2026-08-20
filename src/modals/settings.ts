@@ -2,12 +2,26 @@ import { invoke } from "@tauri-apps/api/core";
 import { $ } from "../format";
 import { currentLang, setLang, type Lang } from "../i18n";
 import {
+  alertPrefs,
   DEFAULTS,
   fullSerials,
+  saveAlertPrefs,
   saveThresholds,
   setFullSerials,
   thresholds,
 } from "../thresholds";
+
+/**
+ * 把阈值与告警设置下发到后端。判定在采样线程进行，因此任何一处改动
+ * （阈值、开关、持续时长）都要重新下发一次。
+ */
+export function pushAlertConfig() {
+  const th = thresholds();
+  const a = alertPrefs();
+  void invoke("set_alert_config", {
+    config: { ...th, enabled: a.enabled, dwellSecs: a.dwellSecs },
+  }).catch(() => {});
+}
 
 const TH_INPUTS: Record<string, keyof typeof DEFAULTS> = {
   "th-cpu": "cpu",
@@ -51,11 +65,33 @@ export function init() {
   for (const [id, key] of Object.entries(TH_INPUTS)) {
     $(id).addEventListener("change", (e) => {
       const v = Number((e.target as HTMLInputElement).value);
-      if (Number.isFinite(v) && v > 0) saveThresholds({ [key]: v });
+      if (Number.isFinite(v) && v > 0) {
+        saveThresholds({ [key]: v });
+        pushAlertConfig();
+      }
     });
   }
+  // 告警：开关与持续时长
+  const alertOn = $("alert-enabled") as HTMLInputElement;
+  const alertDwell = $("alert-dwell") as HTMLInputElement;
+  const prefs = alertPrefs();
+  alertOn.checked = prefs.enabled;
+  alertDwell.value = String(prefs.dwellSecs);
+  alertOn.addEventListener("change", () => {
+    saveAlertPrefs({ enabled: alertOn.checked });
+    pushAlertConfig();
+  });
+  alertDwell.addEventListener("change", () => {
+    const v = Number(alertDwell.value);
+    if (Number.isFinite(v) && v >= 0) {
+      saveAlertPrefs({ dwellSecs: Math.round(v) });
+      pushAlertConfig();
+    }
+  });
+
   $("th-reset").addEventListener("click", () => {
     saveThresholds({ ...DEFAULTS });
+    pushAlertConfig();
     fillSettings();
   });
 

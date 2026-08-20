@@ -52,7 +52,16 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             fps REAL, fps_process TEXT, frame_time REAL, low1 REAL,
             net_down REAL, net_up REAL
         );
-        CREATE INDEX IF NOT EXISTS idx_samples_session ON samples(session_id, ts);",
+        CREATE INDEX IF NOT EXISTS idx_samples_session ON samples(session_id, ts);
+        CREATE TABLE IF NOT EXISTS alerts (
+            session_id INTEGER NOT NULL,
+            ts INTEGER NOT NULL,
+            metric TEXT NOT NULL,
+            value REAL NOT NULL,
+            threshold REAL NOT NULL,
+            unit TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_alerts_session ON alerts(session_id, ts);",
     )?;
     // 幂等迁移：v2 新增列（已存在时 ALTER 失败，忽略即可）
     for stmt in [
@@ -103,6 +112,11 @@ pub fn prune_old_sessions(path: &Path) {
         params![MAX_SESSIONS],
     );
     let _ = conn.execute(
+        "DELETE FROM alerts WHERE session_id NOT IN
+            (SELECT id FROM sessions ORDER BY started_at DESC LIMIT ?1)",
+        params![MAX_SESSIONS],
+    );
+    let _ = conn.execute(
         "DELETE FROM sessions WHERE id NOT IN
             (SELECT id FROM sessions ORDER BY started_at DESC LIMIT ?1)",
         params![MAX_SESSIONS],
@@ -133,6 +147,19 @@ impl Recorder {
     /// 当前是否有进行中的会话（供采样循环判断请求状态是否有待处理的变化）
     pub fn is_active(&self) -> bool {
         self.session_id.is_some()
+    }
+
+    /// 录制期间记录一条告警，供报告生成告警时间线。
+    /// 未在录制时什么也不做 —— 告警通知本身与录制无关，始终会弹。
+    pub fn record_alert(&mut self, alert: &crate::alerts::Alert, ts: u64) {
+        let (Some(id), Some(conn)) = (self.session_id, self.conn.as_ref()) else {
+            return;
+        };
+        let _ = conn.execute(
+            "INSERT INTO alerts (session_id, ts, metric, value, threshold, unit)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, ts, alert.metric, alert.value, alert.threshold, alert.unit],
+        );
     }
 
     /// 每个采样周期调用一次；根据请求标志开启/写入/结束会话
@@ -301,6 +328,8 @@ pub fn list_sessions(db: State<DbPath>) -> Result<Vec<SessionMeta>, String> {
 pub fn delete_session(db: State<DbPath>, session_id: i64) -> Result<(), String> {
     let conn = open_db(&db.0).map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM samples WHERE session_id = ?1", params![session_id])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM alerts WHERE session_id = ?1", params![session_id])
         .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])
         .map_err(|e| e.to_string())?;

@@ -111,7 +111,7 @@ cannot find `vswhere`, run it from a VS Developer Prompt or add
 ### Tests
 
 ```bash
-cd src-tauri && cargo test                        # 41 pure-logic tests, CI-safe
+cd src-tauri && cargo test                        # 50 pure-logic tests, CI-safe
 cd src-tauri && cargo test -- --include-ignored   # + 11 tests needing real hardware
 node scripts/check-i18n.mjs                       # translation keys line up
 ```
@@ -126,6 +126,11 @@ missed):
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 ```
+
+Run it from an **elevated** shell. The app self-elevates, and a non-elevated
+shell cannot terminate the elevated instance afterwards, so the next run would
+be folded into the survivor by the single-instance plugin and silently measure
+the wrong process.
 
 ---
 

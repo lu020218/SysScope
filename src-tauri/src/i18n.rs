@@ -5,12 +5,14 @@
 //! 例外：`elevate.rs` 的提权失败弹窗在 Tauri 启动前就要弹，那时既无
 //! WebView 也无用户配置可读，只能用系统语言。
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
 pub enum Lang {
-    ZhCn,
-    En,
+    ZhCn = 0,
+    En = 1,
 }
 
 impl Lang {
@@ -21,6 +23,24 @@ impl Lang {
         } else {
             Lang::En
         }
+    }
+}
+
+/// 当前界面语言。托盘、提权弹窗之外，告警通知等原生文案也要用它 ——
+/// 前端 set_language 时同步写入，之前只更新了托盘文本。
+/// 用 AtomicU8 而非 Mutex：读取发生在采样线程的热路径上。
+static CURRENT: AtomicU8 = AtomicU8::new(u8::MAX);
+
+pub fn set_current(lang: Lang) {
+    CURRENT.store(lang as u8, Ordering::Relaxed);
+}
+
+/// 未被前端设置过时回退到系统语言（前端就绪前也可能需要输出文案）
+pub fn current() -> Lang {
+    match CURRENT.load(Ordering::Relaxed) {
+        0 => Lang::ZhCn,
+        1 => Lang::En,
+        _ => sys_lang(),
     }
 }
 
@@ -57,6 +77,15 @@ pub fn tr(lang: Lang, key: &str) -> &str {
             "SysScope needs administrator rights to collect FPS and temperature data.\n\nAllow it in the UAC prompt, or right-click the app and choose \"Run as administrator\"."
         }
 
+        // ---------- 阈值告警 ----------
+        (Lang::ZhCn, "alert.title") => "SysScope 告警",
+        (Lang::ZhCn, "alert.body") => "{metric} 已达 {value}{unit}，超过阈值 {threshold}{unit}",
+        (Lang::ZhCn, "alert.metric.cpu") => "CPU 占用",
+        (Lang::ZhCn, "alert.metric.mem") => "内存占用",
+        (Lang::ZhCn, "alert.metric.gpu") => "GPU 占用",
+        (Lang::ZhCn, "alert.metric.cpuTemp") => "CPU 温度",
+        (Lang::ZhCn, "alert.metric.gpuTemp") => "GPU 温度",
+
         // ---------- 报告导出 ----------
         (Lang::ZhCn, "report.langCode") => "zh-CN",
         (Lang::ZhCn, "report.title") => "SysScope 报告 — 会话 #{id}",
@@ -65,6 +94,9 @@ pub fn tr(lang: Lang, key: &str) -> &str {
         (Lang::ZhCn, "report.threshHeading") => "阈值超限",
         (Lang::ZhCn, "report.chartsHeading") => "历史曲线",
         (Lang::ZhCn, "report.hwHeading") => "硬件信息",
+        (Lang::ZhCn, "report.alertsHeading") => "告警记录",
+        (Lang::ZhCn, "report.col.time") => "时间",
+        (Lang::ZhCn, "report.col.reading") => "读数",
         (Lang::ZhCn, "report.col.metric") => "指标",
         (Lang::ZhCn, "report.col.avg") => "平均",
         (Lang::ZhCn, "report.col.max") => "峰值",
@@ -111,6 +143,14 @@ pub fn tr(lang: Lang, key: &str) -> &str {
         (Lang::ZhCn, "report.err.noData") => "该会话没有采样数据",
         (Lang::ZhCn, "report.err.badFormat") => "未知格式: {fmt}",
 
+        (_, "alert.title") => "SysScope alert",
+        (_, "alert.body") => "{metric} reached {value}{unit}, above the {threshold}{unit} threshold",
+        (_, "alert.metric.cpu") => "CPU load",
+        (_, "alert.metric.mem") => "Memory usage",
+        (_, "alert.metric.gpu") => "GPU load",
+        (_, "alert.metric.cpuTemp") => "CPU temperature",
+        (_, "alert.metric.gpuTemp") => "GPU temperature",
+
         (_, "report.langCode") => "en",
         (_, "report.title") => "SysScope report — session #{id}",
         (_, "report.print") => "Print / save as PDF",
@@ -118,6 +158,9 @@ pub fn tr(lang: Lang, key: &str) -> &str {
         (_, "report.threshHeading") => "Threshold breaches",
         (_, "report.chartsHeading") => "History",
         (_, "report.hwHeading") => "Hardware",
+        (_, "report.alertsHeading") => "Alerts",
+        (_, "report.col.time") => "Time",
+        (_, "report.col.reading") => "Reading",
         (_, "report.col.metric") => "Metric",
         (_, "report.col.avg") => "Average",
         (_, "report.col.max") => "Peak",
@@ -191,6 +234,13 @@ mod tests {
         "tray.tooltip",
         "elevate.title",
         "elevate.body",
+        "alert.title",
+        "alert.body",
+        "alert.metric.cpu",
+        "alert.metric.mem",
+        "alert.metric.gpu",
+        "alert.metric.cpuTemp",
+        "alert.metric.gpuTemp",
         "report.langCode",
         "report.title",
         "report.print",
@@ -198,6 +248,9 @@ mod tests {
         "report.threshHeading",
         "report.chartsHeading",
         "report.hwHeading",
+        "report.alertsHeading",
+        "report.col.time",
+        "report.col.reading",
         "report.col.metric",
         "report.col.avg",
         "report.col.max",
@@ -279,6 +332,17 @@ mod tests {
             tr_fmt(Lang::En, "report.duration", &[("h", "1"), ("m", "2"), ("s", "3")]),
             "1h 2m 3s"
         );
+    }
+
+    #[test]
+    fn current_falls_back_to_system_before_frontend_sets_it() {
+        // 前端就绪前 current() 不应 panic 或返回垃圾值
+        let before = current();
+        assert!(before == Lang::ZhCn || before == Lang::En);
+        set_current(Lang::En);
+        assert_eq!(current(), Lang::En);
+        set_current(Lang::ZhCn);
+        assert_eq!(current(), Lang::ZhCn);
     }
 
     #[test]

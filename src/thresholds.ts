@@ -71,3 +71,26 @@ export function fullSerials(): boolean {
 export function setFullSerials(on: boolean) {
   localStorage.setItem(FULL_SERIALS_KEY, on ? "1" : "0");
 }
+
+/** 告警设置。判定在后端进行，这里只负责持久化与下发 */
+const ALERT_KEY = "sysscope-alerts";
+
+export interface AlertPrefs {
+  enabled: boolean;
+  /** 需持续超限多少秒才通知；0 为立即 */
+  dwellSecs: number;
+}
+
+export const ALERT_DEFAULTS: AlertPrefs = { enabled: true, dwellSecs: 15 };
+
+export function alertPrefs(): AlertPrefs {
+  try {
+    return { ...ALERT_DEFAULTS, ...JSON.parse(localStorage.getItem(ALERT_KEY) ?? "{}") };
+  } catch {
+    return { ...ALERT_DEFAULTS };
+  }
+}
+
+export function saveAlertPrefs(patch: Partial<AlertPrefs>) {
+  localStorage.setItem(ALERT_KEY, JSON.stringify({ ...alertPrefs(), ...patch }));
+}

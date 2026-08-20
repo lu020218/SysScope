@@ -157,17 +157,48 @@ pub fn export(
     let out_path = out_dir.join(file_name);
 
     let hw = apply_masking(hw, full_serials);
+    let alerts = load_alerts(conn, session_id);
     let content = match format {
-        "html" => render_html(&info, &rows, lang, &hw),
+        "html" => render_html(&info, &rows, lang, &hw, &alerts),
         // CSV 是行式采样数据，塞机器规格没有意义；且它的列名与 JSON 的字段名
         // 保持英文不变 —— 供 Excel、pandas、脚本消费，翻译会破坏下游解析
         "csv" => render_csv(&rows),
-        "json" => render_json(&info, &rows, &hw)?,
-        "md" => render_md(&info, &rows, lang, &hw),
+        "json" => render_json(&info, &rows, &hw, &alerts)?,
+        "md" => render_md(&info, &rows, lang, &hw, &alerts),
         _ => unreachable!(),
     };
     std::fs::write(&out_path, content).map_err(|e| e.to_string())?;
     Ok(out_path.to_string_lossy().into_owned())
+}
+
+/// 会话期间触发的告警。metric 存的是 i18n key，此处按报告语言翻译。
+#[derive(Serialize)]
+struct AlertRow {
+    ts: u64,
+    metric: String,
+    value: f64,
+    threshold: f64,
+    unit: String,
+}
+
+fn load_alerts(conn: &Connection, session_id: i64) -> Vec<AlertRow> {
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT ts, metric, value, threshold, unit FROM alerts
+         WHERE session_id = ?1 ORDER BY ts",
+    ) else {
+        return Vec::new();
+    };
+    let rows = stmt.query_map(params![session_id], |r| {
+        Ok(AlertRow {
+            ts: r.get(0)?,
+            metric: r.get(1)?,
+            value: r.get(2)?,
+            threshold: r.get(3)?,
+            unit: r.get(4)?,
+        })
+    });
+    rows.map(|it| it.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default()
 }
 
 fn load_rows(conn: &Connection, session_id: i64) -> Result<Vec<Row>, String> {
@@ -387,6 +418,7 @@ fn render_json(
     info: &SessionInfo,
     rows: &[Row],
     hw: &[HwSection],
+    alerts: &[AlertRow],
 ) -> Result<String, String> {
     let v = serde_json::json!({
         "session": {
@@ -396,12 +428,19 @@ fn render_json(
             "started_at_local": fmt_ts(info.started_at),
         },
         "hardware": hw,
+        "alerts": alerts,
         "samples": rows,
     });
     serde_json::to_string_pretty(&v).map_err(|e| e.to_string())
 }
 
-fn render_md(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -> String {
+fn render_md(
+    info: &SessionInfo,
+    rows: &[Row],
+    lang: Lang,
+    hw: &[HwSection],
+    alerts: &[AlertRow],
+) -> String {
     let mut out = format!(
         "# {}\n\n- {}: {}\n- {}: {}\n- {}: {}\n- {}: {}\n",
         tr_fmt(lang, "report.title", &[("id", &info.id.to_string())]),
@@ -461,6 +500,27 @@ fn render_md(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -> 
         out.push_str(&format!("| {name} | {pct:.1}% |\n"));
     }
 
+    if !alerts.is_empty() {
+        out.push_str(&format!(
+            "\n## {}\n\n| {} | {} | {} |\n|---|---|---|\n",
+            tr(lang, "report.alertsHeading"),
+            tr(lang, "report.col.time"),
+            tr(lang, "report.col.metric"),
+            tr(lang, "report.col.reading"),
+        ));
+        for a in alerts {
+            out.push_str(&format!(
+                "| {} | {} | {:.0}{} (≥ {:.0}{}) |\n",
+                fmt_ts(a.ts),
+                tr(lang, &a.metric),
+                a.value,
+                a.unit,
+                a.threshold,
+                a.unit
+            ));
+        }
+    }
+
     if !hw.is_empty() {
         out.push_str(&format!("\n## {}\n", tr(lang, "report.hwHeading")));
         for sec in hw {
@@ -479,7 +539,13 @@ fn render_md(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -> 
     out
 }
 
-fn render_html(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -> String {
+fn render_html(
+    info: &SessionInfo,
+    rows: &[Row],
+    lang: Lang,
+    hw: &[HwSection],
+    alerts: &[AlertRow],
+) -> String {
     let data = serde_json::json!({
         "ts": rows.iter().map(|r| r.ts / 1000).collect::<Vec<_>>(),
         "cpu": rows.iter().map(|r| r.cpu_total).collect::<Vec<_>>(),
@@ -531,6 +597,29 @@ fn render_html(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -
         rows.len(),
     );
 
+    let mut alert_html = String::new();
+    if !alerts.is_empty() {
+        alert_html.push_str(&format!(
+            "<h2>{}</h2><table><thead><tr><th>{}</th><th>{}</th><th>{}</th></tr></thead><tbody>",
+            esc(tr(lang, "report.alertsHeading")),
+            esc(tr(lang, "report.col.time")),
+            esc(tr(lang, "report.col.metric")),
+            esc(tr(lang, "report.col.reading")),
+        ));
+        for a in alerts {
+            alert_html.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td class=\"bad\">{:.0}{} (≥ {:.0}{})</td></tr>",
+                esc(&fmt_ts(a.ts)),
+                esc(tr(lang, &a.metric)),
+                a.value,
+                esc(&a.unit),
+                a.threshold,
+                esc(&a.unit)
+            ));
+        }
+        alert_html.push_str("</tbody></table>");
+    }
+
     // 硬件信息里含设备自报的型号串，一律转义后再拼进 HTML
     let mut hw_html = String::new();
     if !hw.is_empty() {
@@ -562,6 +651,7 @@ fn render_html(info: &SessionInfo, rows: &[Row], lang: Lang, hw: &[HwSection]) -
     }
 
     let mut html = HTML_TEMPLATE
+        .replace("__ALERTS__", &alert_html)
         .replace("__HARDWARE__", &hw_html)
         .replace(
             "__TITLE__",
@@ -740,6 +830,54 @@ mod tests {
         assert!(std::fs::read_to_string(&path)
             .unwrap()
             .contains("240436541701519"));
+    }
+
+    /// 会话期间的告警必须出现在报告里 —— 否则录制时弹过的通知事后无处可查
+    #[test]
+    fn alerts_appear_in_reports() {
+        let dir = std::env::temp_dir().join("sysscope-test-alerts");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (db_path, sid) = make_test_db(&dir);
+        let conn = open_db(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO alerts (session_id, ts, metric, value, threshold, unit)
+             VALUES (?1, 62000, 'alert.metric.cpuTemp', 97.5, 95.0, '°C')",
+            rusqlite::params![sid],
+        )
+        .unwrap();
+
+        for (lang, fmt, heading) in [
+            (Lang::En, "html", "Alerts"),
+            (Lang::En, "md", "## Alerts"),
+            (Lang::ZhCn, "md", "## 告警记录"),
+        ] {
+            let path = super::export(&conn, sid, fmt, &dir, lang, &[], false).unwrap();
+            let c = std::fs::read_to_string(&path).unwrap();
+            assert!(c.contains(heading), "{fmt}/{lang:?} missing alert section");
+            // metric 存的是 i18n key，报告里必须已被翻译
+            assert!(
+                !c.contains("alert.metric.cpuTemp"),
+                "{fmt}/{lang:?} leaked a raw i18n key"
+            );
+        }
+        // 英文报告里应显示翻译后的指标名与读数
+        let p = super::export(&conn, sid, "md", &dir, Lang::En, &[], false).unwrap();
+        let md = std::fs::read_to_string(p).unwrap();
+        assert!(md.contains("CPU temperature"), "{md}");
+        assert!(md.contains("98°C"), "{md}");
+    }
+
+    /// 没有告警时不应留下空标题
+    #[test]
+    fn no_alert_section_when_none_fired() {
+        let dir = std::env::temp_dir().join("sysscope-test-noalerts");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (db_path, sid) = make_test_db(&dir);
+        let conn = open_db(&db_path).unwrap();
+        let p = super::export(&conn, sid, "md", &dir, Lang::En, &[], false).unwrap();
+        assert!(!std::fs::read_to_string(p).unwrap().contains("## Alerts"));
     }
 
     /// CSV 是行式采样数据，不该混入机器规格

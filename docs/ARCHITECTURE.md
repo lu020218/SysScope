@@ -193,7 +193,7 @@ makes exported files unopenable from Explorer even though writing them succeeds.
 
 ## Testing
 
-- `cargo test` — 41 pure-logic tests (parsing, statistics, schema, escaping, i18n,
+- `cargo test` — 50 pure-logic tests (parsing, statistics, schema, escaping, i18n,
   serial masking)
 - `cargo test -- --include-ignored` — plus 11 that need real hardware
 - `cargo test --lib hwinfo_dump -- --ignored --nocapture` — prints every hardware

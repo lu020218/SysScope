@@ -286,6 +286,9 @@
           <label class="setting-row"><span data-i18n="settings.th.gpuTemp">GPU 温度（°C）</span><input type="number" id="th-gpu-temp" min="1" max="120" /></label>
           <h4 data-i18n="settings.probe">网络探测</h4>
           <label class="setting-row"><span data-i18n="settings.probe.target">延迟探测目标（IP/域名）</span><input type="text" id="ping-target" placeholder="223.5.5.5" /></label>
+          <label class="setting-row"><span data-i18n="settings.alerts.enabled">超限时弹出通知</span><input type="checkbox" id="alert-enabled" /></label>
+          <label class="setting-row"><span data-i18n="settings.alerts.dwell">持续超限多久才通知（秒）</span><input type="number" id="alert-dwell" min="0" max="600" /></label>
+          <div class="setting-note" data-i18n="settings.alerts.note">判定在后端进行，因此面板收起到托盘时仍然有效</div>
           <h4 data-i18n="settings.privacy">隐私</h4>
           <label class="setting-row"><span data-i18n="settings.fullSerials">报告包含完整序列号</span><input type="checkbox" id="full-serials" /></label>
           <div class="setting-note" data-i18n="settings.fullSerials.note">关闭时，导出的报告只保留序列号与 MAC 的后 4 位</div>

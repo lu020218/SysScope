@@ -1,3 +1,4 @@
+mod alerts;
 mod cpu_perf;
 mod disk;
 mod elevate;
@@ -123,6 +124,8 @@ struct TrayItems {
 #[tauri::command]
 fn set_language(app: AppHandle, lang: String) {
     let lang = i18n::Lang::parse(&lang);
+    // 告警通知等原生文案也要跟随，不止托盘
+    i18n::set_current(lang);
     let Some(items) = app.try_state::<Arc<TrayItems>>() else {
         return;
     };
@@ -205,6 +208,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
         }))
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             sampler::get_static_info,
             sampler::set_sample_interval,
@@ -212,6 +216,7 @@ pub fn run() {
             window_control,
             set_main_on_top,
             set_language,
+            alerts::set_alert_config,
             hwinfo::hardware_info,
             ping::set_ping_target,
             procdetail::process_detail,

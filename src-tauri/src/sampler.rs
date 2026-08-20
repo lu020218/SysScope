@@ -460,6 +460,7 @@ pub fn set_sample_interval(ms: u64) {
 fn run_sampler(app: &AppHandle, rec_ctl: &Arc<RecorderCtl>, db_path: &std::path::Path) {
     let mut recorder = Recorder::new(rec_ctl.clone(), db_path.to_path_buf());
     let mut ctx = SamplerCtx::init();
+    let mut alerts = crate::alerts::AlertWatcher::default();
     let mut last_tick = Instant::now();
     let mut next = Instant::now();
     loop {
@@ -485,6 +486,12 @@ fn run_sampler(app: &AppHandle, rec_ctl: &Arc<RecorderCtl>, db_path: &std::path:
         let mut snapshot = take_snapshot(&mut ctx, elapsed);
         snapshot.sample_cost_ms = t0.elapsed().as_secs_f64() * 1000.0;
         recorder.tick(&snapshot);
+        // 告警判定在此而非前端：主窗口隐藏到托盘后 WebView 会被节流，
+        // 而那正是最需要告警的时候（详见 alerts.rs 模块注释）
+        for alert in alerts.tick(&snapshot) {
+            recorder.record_alert(&alert, snapshot.ts);
+            crate::alerts::notify(app, &alert);
+        }
         let _ = app.emit("metrics", &snapshot);
     }
 }

@@ -26,6 +26,13 @@
     reads BOM-less UTF-8 as ANSI, which mangles non-ASCII source and
     breaks parsing.
 
+    RUN THIS FROM AN ELEVATED SHELL. The app self-elevates on launch, and a
+    non-elevated shell cannot terminate the elevated instance afterwards --
+    cleanup then fails silently, and the *next* run gets folded into the
+    survivor by the single-instance plugin, measuring the old process while
+    reporting it as the build under test. The script now refuses to continue
+    in that state rather than emit misleading results.
+
 .PARAMETER Exe
     Executable under test. Defaults to the release build output.
 
@@ -68,6 +75,8 @@ public class SmokeWin {
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
   [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeout(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr res);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   public struct RECT { public int L,T,R,B; }
   delegate bool EnumProc(IntPtr h, IntPtr lp);
   public static IntPtr Find(uint pid, string needle) {
@@ -138,6 +147,24 @@ if (-not $isAdmin) {
 }
 
 Stop-All
+
+# A leftover instance makes every measurement below meaningless: the single-instance
+# plugin routes our launch into the survivor, our new pid exits, and the script then
+# measures a tray-state process (0 webview children, blank capture) as if it were the
+# build under test. Stop-Process fails silently on an elevated leftover when this shell
+# is not elevated, so verify rather than assume.
+$leftover = @(Get-Process sysscope -ErrorAction SilentlyContinue)
+if ($leftover.Count -gt 0) {
+    $ids = ($leftover | ForEach-Object { $_.Id }) -join ", "
+    Write-Host "[FAIL] a SysScope instance survived cleanup (pid $ids)" -ForegroundColor Red
+    if (-not $isAdmin) {
+        Write-Host "       it is running elevated and this shell is not, so it cannot be killed here." -ForegroundColor Red
+        Write-Host "       quit it from the tray icon, or from an elevated shell:" -ForegroundColor Red
+        Write-Host "         Stop-Process -Name sysscope -Force" -ForegroundColor Red
+    }
+    Write-Host "       results would be measured against the old instance, so refusing to continue." -ForegroundColor Red
+    exit 1
+}
 
 # ---------- 1. launch + survive ----------
 $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -230,28 +257,39 @@ if ($hMain -ne [IntPtr]::Zero) {
 # ---------- 3. screenshot: does the panel render content? ----------
 $shot = Join-Path $env:TEMP "sysscope_smoke.png"
 if ($hMain -ne [IntPtr]::Zero) {
-    $rc = New-Object SmokeWin+RECT
-    [SmokeWin]::GetWindowRect($hMain, [ref]$rc) | Out-Null
-    $bmp = New-Object System.Drawing.Bitmap(($rc.R - $rc.L), ($rc.B - $rc.T))
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $hdc = $g.GetHdc()
-    # PW_RENDERFULLCONTENT = 2, required to capture WebView2 content
-    [SmokeWin]::PrintWindow($hMain, $hdc, 2) | Out-Null
-    $g.ReleaseHdc($hdc)
-    $bmp.Save($shot, [System.Drawing.Imaging.ImageFormat]::Png)
+    # WebView2 suspends rendering when its window is fully occluded, so PrintWindow
+    # would capture a blank frame if anything covers the panel. Raise it first, then
+    # retry: the first frame after being uncovered can still be mid-paint.
+    [SmokeWin]::ShowWindow($hMain, 9) | Out-Null   # SW_RESTORE
+    [SmokeWin]::SetForegroundWindow($hMain) | Out-Null
 
-    # Heuristic: a working panel is visually rich (charts, values, accent
-    # colours). Both the "connection refused" error page and an all-blank
-    # placeholder panel are nearly monochrome.
-    $colors = New-Object 'System.Collections.Generic.HashSet[int]'
-    for ($y = 0; $y -lt $bmp.Height; $y += 7) {
-        for ($x = 0; $x -lt $bmp.Width; $x += 7) {
-            $c = $bmp.GetPixel($x, $y)
-            [void]$colors.Add((($c.R -shr 4) * 256) + (($c.G -shr 4) * 16) + ($c.B -shr 4))
+    $colors = $null
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        Start-Sleep -Milliseconds 700
+        $rc = New-Object SmokeWin+RECT
+        [SmokeWin]::GetWindowRect($hMain, [ref]$rc) | Out-Null
+        $bmp = New-Object System.Drawing.Bitmap(($rc.R - $rc.L), ($rc.B - $rc.T))
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $hdc = $g.GetHdc()
+        # PW_RENDERFULLCONTENT = 2, required to capture WebView2 content
+        [SmokeWin]::PrintWindow($hMain, $hdc, 2) | Out-Null
+        $g.ReleaseHdc($hdc)
+        $bmp.Save($shot, [System.Drawing.Imaging.ImageFormat]::Png)
+
+        # Heuristic: a working panel is visually rich (charts, values, accent
+        # colours). Both the "connection refused" error page and an all-blank
+        # placeholder panel are nearly monochrome.
+        $colors = New-Object 'System.Collections.Generic.HashSet[int]'
+        for ($y = 0; $y -lt $bmp.Height; $y += 7) {
+            for ($x = 0; $x -lt $bmp.Width; $x += 7) {
+                $c = $bmp.GetPixel($x, $y)
+                [void]$colors.Add((($c.R -shr 4) * 256) + (($c.G -shr 4) * 16) + ($c.B -shr 4))
+            }
         }
+        $g.Dispose(); $bmp.Dispose()
+        if ($colors.Count -ge 12) { break }
     }
-    $g.Dispose(); $bmp.Dispose()
-    Check "panel renders content" ($colors.Count -ge 12) ("{0} distinct tones" -f $colors.Count)
+    Check "panel renders content" ($colors.Count -ge 12) ("{0} distinct tones after {1} attempt(s)" -f $colors.Count, $attempt)
 }
 
 # ---------- 4. sampler is actually running ----------

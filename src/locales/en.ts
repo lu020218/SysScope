@@ -189,6 +189,10 @@ const en: Record<Keys, string> = {
   "settings.th.gpuTemp": "GPU temperature (°C)",
   "settings.probe": "Network probe",
   "settings.probe.target": "Latency probe target (IP / hostname)",
+  "settings.alerts.enabled": "Notify when a threshold is exceeded",
+  "settings.alerts.dwell": "Sustained for how many seconds",
+  "settings.alerts.note":
+    "Evaluated in the backend, so it keeps working while the panel is in the tray",
   "settings.privacy": "Privacy",
   "settings.fullSerials": "Include full serial numbers in reports",
   "settings.fullSerials.note":

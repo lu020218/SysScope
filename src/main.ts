@@ -42,6 +42,8 @@ async function main() {
   await step("tabs", initAllTabs);
   await step("procdetail", procdetail.init);
   await step("settings", settings.init);
+  // 阈值与告警配置下发到后端（判定在采样线程，见 alerts.rs）
+  await step("alertcfg", settings.pushAlertConfig);
   await step("hwinfo", hwinfo.init);
   await step("sessions", sessions.init);
 
