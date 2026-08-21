@@ -288,22 +288,31 @@ body {
   gap: 10px;
 }
 
+/* display 用 block 而非 flex：flex 容器里的匿名文本节点不吃
+   text-overflow，GPU 标题因此曾是硬截断而非省略号。圆点改为
+   inline-block 的 ::before，效果一致但 ellipsis 能正常工作。 */
 .card-head h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 1.4px;
   padding-top: 6px;
-  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-head h2::before {
   content: "";
-  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+  position: relative;
+  top: -1px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -311,14 +320,12 @@ body {
   box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
-/* 型号名来自硬件，长度不可控：截断而非换行，否则标题占两行会把
-   头部统计挤成竖排（主板卡片曾出现过） */
-.gpu-card h2,
-#board-card h2 {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 55%;
+/* 读数优先于标题：统计取自身所需宽度，标题拿剩下的并按需截断。
+   此前 GPU 标题被写死 max-width:55%，长型号名吃掉一半，两位数百分比
+   加上显存读数就放不下，统计被挤成两行。 */
+.card-head > .stats,
+.card-head > .head-right {
+  flex: 0 1 auto;
 }
 
 .stats {

@@ -119,6 +119,15 @@ function buildGpuCards(gpus: GpuSnapshot[]) {
   });
 }
 
+/** 已用/总量共用单位时只保留一次单位；单位不同则各自标注 */
+function vramText(used: number, total: number): string {
+  if (total <= 0) return fmtBytes(used);
+  const u = fmtBytes(used);
+  const t = fmtBytes(total);
+  const unit = t.slice(t.indexOf(" ") + 1);
+  return u.endsWith(unit) ? `${u.slice(0, u.indexOf(" "))} / ${t}` : `${u} / ${t}`;
+}
+
 /** 采集缓冲键：g{i}u 占用率、g{i}v 显存百分比 */
 export function bufferValues(s: Snapshot, values: Record<string, number>) {
   s.gpus.forEach((g, i) => {
@@ -156,10 +165,9 @@ export function update(s: Snapshot, th: Thresholds, ts: number[], start: number)
     if (!c) return; // 去抖期间快照与卡片可能短暂不齐，跳过越界项
     c.utilEl.textContent = `${g.util_pct.toFixed(0)}%`;
     setWarn(c.utilEl, g.util_pct >= th.gpu);
-    c.vramEl.textContent =
-      g.vram_total > 0
-        ? `${fmtBytes(g.vram_used)} / ${fmtBytes(g.vram_total)}`
-        : fmtBytes(g.vram_used);
+    // "2.6 / 16.0 GB" 而非 "2.6 GB / 16.0 GB"：同一单位重复两次既占宽度
+    // 又没有信息量，而这一格的宽度正是把头部统计挤到第二行的原因
+    c.vramEl.textContent = vramText(g.vram_used, g.vram_total);
     // 节流徽章（硬件级标志，任何面板下都更新）
     c.badgeThermal.classList.toggle("hidden", !g.throttle_thermal);
     c.badgePower.classList.toggle("hidden", !g.throttle_power);
