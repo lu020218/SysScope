@@ -1158,3 +1158,71 @@ body {
   padding-right: 10px;
   cursor: pointer;
 }
+
+/* ---------- 主板卡片：数值瓦片 ---------- */
+
+/* 这张卡片没有曲线（数据 5 秒刷新一次，画出来是阶梯不是曲线），
+   改用瓦片承载读数，与卡片头部 stat 同一套语言：大数字 + 小标签 */
+.board-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: center;
+}
+
+.tile-group.hidden {
+  display: none;
+}
+
+.tile-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin-bottom: 7px;
+}
+
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tile {
+  flex: 1 1 92px;
+  /* 上限防止读数少时瓦片被拉成大长条 */
+  max-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tile b {
+  font-size: 18px;
+  font-weight: 650;
+  color: #d7dee8;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.tile span {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 超过阈值的温度点整块提示，而不只是变个字色 */
+.tile.warn {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.tile.warn b {
+  color: var(--warn);
+}
