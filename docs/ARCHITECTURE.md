@@ -9,10 +9,10 @@ A map of the codebase for anyone who wants to change it.
                     │  sampling thread (one, owns all       │
                     │  collectors; panic-guarded)           │
                     │                                       │
-   PDH ────────────▶│  take_snapshot() every tick (~20 ms)  │
+   PDH ────────────▶│  take_snapshot() per tick (~13 ms)    │
    NVML ───────────▶│         │                             │
    ETW ────────────▶│         ├──▶ SQLite (when recording)   │
-   LHM bridge ─────▶│         │                             │
+   LHM (2 s) ──────▶│         │                             │
    sysinfo/Win32 ──▶│         └──▶ emit("metrics", Snapshot)│
                     └──────────────────┬───────────────────┘
                                        │  Tauri event
@@ -73,6 +73,35 @@ N/A. A monitor that refuses to start because one sensor is missing is useless.
 `elevate.rs` relaunches via `ShellExecute("runas")`. Declaring
 `requireAdministrator` instead would break the MSI's "launch app" checkbox, which
 uses `CreateProcess` under a non-elevated token and fails silently.
+
+**Expensive collectors run on their own cadence, not on every tick.** The
+sampling loop ticks at the user's interval, but three collectors are gated behind
+their own timers because they cost far more than everything else combined:
+
+| Collector | Cadence | Cost | Why it can be stale |
+|---|---|---|---|
+| LibreHardwareMonitor main read | 2 s | ~390 ms | Temperature and package power change on a slower physical timescale |
+| SMART (`sysscope_storage_json`) | 10 s | ~70 ms | Drive temperature moves in seconds, health in months, TBW in days |
+| Motherboard SuperIO (`sysscope_board_json`) | 5 s | ~1.2 ms | Fan RPM and VRM temperature change slowly |
+
+The LHM figure is the one that matters. LibreHardwareMonitor reads per-core MSRs
+by setting thread affinity to each core in turn; on a 20-core/28-thread part that
+is ~310 ms to refresh 119 CPU sensors, plus ~77 ms for the NVIDIA domain. **The
+cost scales with core count**, so it is worst on exactly the machines people buy
+for monitoring-worthy workloads. Reading it every tick put the app at ~40% of one
+core; the 2-second cadence halves that, at the price of temperature updating
+every 2 s instead of every 1 s.
+
+**A measurement tool that lies about itself is worse than no measurement.**
+`README` claimed "~20 ms per tick" for months. That number came from
+`perf_breakdown`, which never loaded the sensor bridge in release builds because
+`locate_dll`'s source-tree fallback was gated behind `debug_assertions` — so the
+most expensive collector was silently absent from every measurement. The claim
+survived because the true cost, ~1.4% of a 28-thread machine, is invisible in
+Task Manager. Two follow-on lessons are baked into the test now: it measures
+`take_snapshot` itself rather than summing collectors called in isolation (the
+sum stopped matching reality once cadence gates existed), and the sensor dump
+reports min/median/max instead of a single worst case.
 
 **Static hardware facts are collected once, never per tick.** `hwinfo.rs` queries
 about a dozen WMI classes plus NVML and IpHelper — roughly 320 ms on a real

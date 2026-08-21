@@ -154,6 +154,194 @@ public static class Bridge
     }
 
     /// <summary>
+    /// 诊断用：逐个硬件域测量 Update() 耗时（毫秒）。
+    ///
+    /// 加这个是因为"哪个域慢"靠猜连错两次：先以为是 SuperIO（实测 1.2ms），
+    /// 再以为是 SMART（拆走后仍慢）。与其继续猜，不如让桥自己报出来。
+    ///
+    /// 结构：[{"name":"...","type":"Cpu","ms":12.3}]
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "sysscope_timing_json")]
+    public static unsafe int TimingJson(byte* buf, int len)
+    {
+        try
+        {
+            lock (Lock)
+            {
+                if (_computer == null || buf == null || len <= 0)
+                {
+                    return -1;
+                }
+                var sb = new StringBuilder(1024);
+                sb.Append('[');
+                bool first = true;
+                foreach (var hw in _computer.Hardware)
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    hw.Update();
+                    sw.Stop();
+                    if (!first)
+                    {
+                        sb.Append(',');
+                    }
+                    first = false;
+                    sb.Append("{\"name\":");
+                    AppendJsonString(sb, hw.Name);
+                    sb.Append(",\"type\":");
+                    AppendJsonString(sb, hw.HardwareType.ToString());
+                    sb.Append(",\"ms\":");
+                    AppendNum(sb, (float)sw.Elapsed.TotalMilliseconds);
+                    sb.Append(",\"sensors\":");
+                    AppendNum(sb, hw.Sensors.Length);
+                    sb.Append('}');
+                }
+                sb.Append(']');
+
+                var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+                if (bytes.Length >= len)
+                {
+                    return -1;
+                }
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    buf[i] = bytes[i];
+                }
+                buf[bytes.Length] = 0;
+                return bytes.Length;
+            }
+        }
+        catch (Exception e)
+        {
+            _lastError = e.ToString();
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// 硬盘 SMART（温度、健康度、累计写入），与每拍调用的 SensorsJson 分开导出。
+    ///
+    /// 分开的依据是实测：LHM 的 Storage.Update() 走 SMART IOCTL，本机两块 NVMe
+    /// 合计约 390ms 中位数，占满一整拍的 95%。而 SMART 数据变化极慢 ——
+    /// 温度以秒计、健康度以月计、累计写入以天计 —— 每拍读取纯属浪费。
+    /// 调用方按十秒级轮询即可。
+    ///
+    /// 结构：[{"name":"...","temp":42.0,"temp2":50.0,"life":98.0,"written_gb":1234.5}]
+    /// </summary>
+    [UnmanagedCallersOnly(EntryPoint = "sysscope_storage_json")]
+    public static unsafe int StorageJson(byte* buf, int len)
+    {
+        try
+        {
+            lock (Lock)
+            {
+                if (_computer == null || buf == null || len <= 0)
+                {
+                    return -1;
+                }
+                var storage = new StringBuilder();
+                bool firstDisk = true;
+                foreach (var hw in _computer.Hardware)
+                {
+                    if (hw.HardwareType != HardwareType.Storage)
+                    {
+                        continue;
+                    }
+
+                        hw.Update();
+                        float dTemp = -1f, dTemp2 = -1f, dLife = -1f, dWritten = -1f;
+                        foreach (var s in hw.Sensors)
+                        {
+                            if (s.Value is not { } v)
+                            {
+                                continue;
+                            }
+                            var value = (float)v;
+                            if (s.SensorType == SensorType.Temperature)
+                            {
+                                // "Temperature" 为复合温度；"Temperature 2" 常为控制器
+                                if (s.Name == "Temperature" || dTemp < 0)
+                                {
+                                    if (s.Name.Contains('2'))
+                                    {
+                                        dTemp2 = value;
+                                    }
+                                    else
+                                    {
+                                        dTemp = value;
+                                    }
+                                }
+                                else if (s.Name.Contains('2'))
+                                {
+                                    dTemp2 = value;
+                                }
+                            }
+                            else if (s.SensorType == SensorType.Level &&
+                                     s.Name.Contains("Remaining Life"))
+                            {
+                                dLife = value;
+                            }
+                            else if (s.SensorType == SensorType.Data &&
+                                     s.Name.Contains("Data Written"))
+                            {
+                                dWritten = value; // GB
+                            }
+                        }
+                        if (dTemp >= 0 || dLife >= 0 || dWritten >= 0)
+                        {
+                            if (!firstDisk)
+                            {
+                                storage.Append(',');
+                            }
+                            firstDisk = false;
+                            storage.Append("{\"name\":");
+                            AppendJsonString(storage, hw.Name);
+                            if (dTemp >= 0)
+                            {
+                                storage.Append(",\"temp\":");
+                                AppendNum(storage, dTemp);
+                            }
+                            if (dTemp2 >= 0)
+                            {
+                                storage.Append(",\"temp2\":");
+                                AppendNum(storage, dTemp2);
+                            }
+                            if (dLife >= 0)
+                            {
+                                storage.Append(",\"life\":");
+                                AppendNum(storage, dLife);
+                            }
+                            if (dWritten >= 0)
+                            {
+                                storage.Append(",\"written_gb\":");
+                                AppendNum(storage, dWritten);
+                            }
+                            storage.Append('}');
+                        }
+                    
+                }
+                var sb = new StringBuilder(512);
+                sb.Append('[').Append(storage).Append(']');
+                var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+                if (bytes.Length >= len)
+                {
+                    return -1;
+                }
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    buf[i] = bytes[i];
+                }
+                buf[bytes.Length] = 0;
+                return bytes.Length;
+            }
+        }
+        catch (Exception e)
+        {
+            _lastError = e.ToString();
+            return -1;
+        }
+    }
+
+    /// <summary>
     /// 主板 SuperIO 传感器（风扇转速、VRM/芯片组温度），与每拍调用的
     /// SensorsJson 分开导出。
     ///
@@ -211,7 +399,12 @@ public static class Bridge
                                 AppendNum(fans, value);
                                 fans.Append('}');
                             }
-                            else if (s.SensorType == SensorType.Temperature && value > 0f)
+                            // 未接线的温度接口会报出物理上不可能的值（实测某接口
+                            // 常驻 4°C）。运行中的主板传感器不可能低于室温，
+                            // 原样显示会让人以为某处真的只有 4 度。
+                            // 上限同理挡掉 SuperIO 偶发的满量程读数。
+                            else if (s.SensorType == SensorType.Temperature &&
+                                     value >= 10f && value <= 125f)
                             {
                                 if (!firstTemp)
                                 {
@@ -277,8 +470,6 @@ public static class Bridge
                 var coreClocks = new System.Collections.Generic.List<float>();
                 var sb = new StringBuilder(512);
                 sb.Append('{');
-                var storage = new StringBuilder();
-                bool firstDisk = true;
 
                 foreach (var hw in _computer.Hardware)
                 {
@@ -358,79 +549,7 @@ public static class Bridge
                             }
                         }
                     }
-                    else if (hw.HardwareType == HardwareType.Storage)
-                    {
-                        hw.Update();
-                        float dTemp = -1f, dTemp2 = -1f, dLife = -1f, dWritten = -1f;
-                        foreach (var s in hw.Sensors)
-                        {
-                            if (s.Value is not { } v)
-                            {
-                                continue;
-                            }
-                            var value = (float)v;
-                            if (s.SensorType == SensorType.Temperature)
-                            {
-                                // "Temperature" 为复合温度；"Temperature 2" 常为控制器
-                                if (s.Name == "Temperature" || dTemp < 0)
-                                {
-                                    if (s.Name.Contains('2'))
-                                    {
-                                        dTemp2 = value;
-                                    }
-                                    else
-                                    {
-                                        dTemp = value;
-                                    }
-                                }
-                                else if (s.Name.Contains('2'))
-                                {
-                                    dTemp2 = value;
-                                }
-                            }
-                            else if (s.SensorType == SensorType.Level &&
-                                     s.Name.Contains("Remaining Life"))
-                            {
-                                dLife = value;
-                            }
-                            else if (s.SensorType == SensorType.Data &&
-                                     s.Name.Contains("Data Written"))
-                            {
-                                dWritten = value; // GB
-                            }
-                        }
-                        if (dTemp >= 0 || dLife >= 0 || dWritten >= 0)
-                        {
-                            if (!firstDisk)
-                            {
-                                storage.Append(',');
-                            }
-                            firstDisk = false;
-                            storage.Append("{\"name\":");
-                            AppendJsonString(storage, hw.Name);
-                            if (dTemp >= 0)
-                            {
-                                storage.Append(",\"temp\":");
-                                AppendNum(storage, dTemp);
-                            }
-                            if (dTemp2 >= 0)
-                            {
-                                storage.Append(",\"temp2\":");
-                                AppendNum(storage, dTemp2);
-                            }
-                            if (dLife >= 0)
-                            {
-                                storage.Append(",\"life\":");
-                                AppendNum(storage, dLife);
-                            }
-                            if (dWritten >= 0)
-                            {
-                                storage.Append(",\"written_gb\":");
-                                AppendNum(storage, dWritten);
-                            }
-                            storage.Append('}');
-                        }
-                    }
+
                 }
 
                 var cpuTemp = cpuTempPreferred >= 0 ? cpuTempPreferred : cpuTempMax;
@@ -481,7 +600,7 @@ public static class Bridge
                     AppendNum(sb, coreClocks[i]);
                 }
                 sb.Append("],");
-                sb.Append("\"storage\":[").Append(storage).Append("]}");
+                sb.Append("\"ok\":1}");
 
                 var bytes = Encoding.UTF8.GetBytes(sb.ToString());
                 if (bytes.Length >= len)

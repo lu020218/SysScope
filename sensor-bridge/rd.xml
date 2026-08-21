@@ -1,8 +1,19 @@
 <!-- NativeAOT 运行时指令：LHM 通过泛型 DeviceIOControl<T> 运行时封送结构体，
-     静态分析无法发现，这里强制为相关类型生成封送元数据 -->
+     静态分析无法发现，这里强制为相关类型生成封送元数据。
+
+     程序集级的 MarshalStructure 对 Ring0 下的**嵌套**结构体并不生效，必须用
+     `外层+嵌套` 语法逐个点名。开启主板域（LPC/SuperIO 检测）后会走到
+     Ring0.WriteIoPort，缺了 WriteIoPortInput 会让 Computer.Open() 直接抛
+     NotSupportedException —— 那不只是主板读不到，而是整个桥 Init 失败，
+     CPU 温度、功耗、SMART 全部一并丢失。 -->
 <Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
   <Application>
-    <Assembly Name="LibreHardwareMonitorLib" Dynamic="Required All" MarshalStructure="Required All" />
+    <Assembly Name="LibreHardwareMonitorLib" Dynamic="Required All" MarshalStructure="Required All">
+      <Type Name="LibreHardwareMonitor.Hardware.Ring0+WriteIoPortInput" MarshalStructure="Required All" />
+      <Type Name="LibreHardwareMonitor.Hardware.Ring0+ReadPciConfigInput" MarshalStructure="Required All" />
+      <Type Name="LibreHardwareMonitor.Hardware.Ring0+WritePciConfigInput" MarshalStructure="Required All" />
+      <Type Name="LibreHardwareMonitor.Hardware.Ring0+WriteMsrInput" MarshalStructure="Required All" />
+    </Assembly>
     <Assembly Name="System.Private.CoreLib">
       <Type Name="System.UInt64" MarshalStructure="Required All" />
       <Type Name="System.UInt32" MarshalStructure="Required All" />

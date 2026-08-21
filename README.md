@@ -15,8 +15,12 @@ and shows each of them at two levels: a live chart at a glance, and a detail tab
 with the numbers you actually need when something is wrong (thermal throttling,
 power limits, queue depth, retransmits, per-process GPU usage…).
 
-It samples in **~20 ms per tick**, so even the 0.5 s interval costs a few percent
-of one core.
+A typical tick costs **~13 ms**. Reading temperatures through
+LibreHardwareMonitor is far more expensive — it pins the sampling thread to each
+core in turn to read per-core MSRs, which costs ~390 ms on a 28-thread CPU — so
+that read runs on its own 2-second cadence instead of every tick. All in,
+SysScope uses about **20% of one core** (0.8% of this 28-thread machine, ~5% of a
+4-thread laptop).
 
 ---
 
@@ -111,8 +115,8 @@ cannot find `vswhere`, run it from a VS Developer Prompt or add
 ### Tests
 
 ```bash
-cd src-tauri && cargo test                        # 50 pure-logic tests, CI-safe
-cd src-tauri && cargo test -- --include-ignored   # + 11 tests needing real hardware
+cd src-tauri && cargo test                        # 53 pure-logic tests, CI-safe
+cd src-tauri && cargo test -- --include-ignored   # + 12 tests needing real hardware
 node scripts/check-i18n.mjs                       # translation keys line up
 ```
 
@@ -148,11 +152,18 @@ each metric:
 | **LibreHardwareMonitor** (via a NativeAOT C ABI bridge) | Temperatures, CPU power/voltage, per-core clocks, SMART |
 | **sysinfo / IpHelper / Win32** | Process tables, connection tables, topology |
 
-A note on PDH: an early version queried `Win32_PerfFormattedData_*` over WMI and
-each tick cost **1.7 seconds**, because every one of those queries blocks for an
-internal sampling window. Moving to a single PDH query handle cut a tick to
-**20 ms**. If you are writing a Windows monitor, do not poll formatted WMI
-counters in a loop.
+Two notes for anyone writing a Windows monitor.
+
+**Do not poll formatted WMI counters in a loop.** An early version queried
+`Win32_PerfFormattedData_*` over WMI and each tick cost **1.7 seconds**, because
+every one of those queries blocks for an internal sampling window. A single PDH
+query handle brought that part down to ~1.5 ms.
+
+**Per-core sensor reads scale with core count, and they are not cheap.**
+LibreHardwareMonitor sets thread affinity to each core in turn to read its MSRs;
+on a 20-core/28-thread part that is ~310 ms for one refresh of 119 sensors. The
+expensive collectors here run on their own cadences (2 s for temperatures and
+power, 10 s for SMART, 5 s for fans) rather than on every tick.
 
 Source layout is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

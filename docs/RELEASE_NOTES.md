@@ -62,12 +62,17 @@ interactive HTML report, raw CSV/JSON, or a Markdown summary.
 
 | | |
 |---|---|
-| Sampling cost | ~20 ms per tick |
+| Typical tick | ~13 ms |
+| CPU use, all in | ~20% of one core (0.8% of a 28-thread machine) |
 | Startup to visible | 0.16 s |
 | Memory (tray-resident) | ~140 MB |
 
-The hardware inventory is collected once on first use (~320 ms) and cached — it
-never touches the sampling loop.
+Temperatures come from LibreHardwareMonitor, which reads per-core MSRs by pinning
+the sampling thread to each core in turn — ~390 ms on a 28-thread CPU. That read
+runs on a 2-second cadence rather than every tick, so temperature and package
+power refresh every 2 s while everything else stays at your chosen interval.
+SMART refreshes every 10 s, fan speeds every 5 s, and the hardware inventory is
+read once and cached.
 
 ## Install
 

@@ -180,10 +180,30 @@ pub struct SamplerCtx {
     /// 每拍去读只有代价没有收益。
     pub board: Option<crate::sensors::BoardSensors>,
     pub board_at: Option<Instant>,
+    /// SMART 读数与上次刷新时刻。SMART IOCTL 是整条采集链路里最昂贵的一环
+    /// （实测两块 NVMe 约 390ms），而其数据变化以秒/月/天计。
+    pub storage_temps: Vec<StorageTemp>,
+    pub storage_at: Option<Instant>,
+    /// LHM 主读取的缓存与上次刷新时刻（见 SENSOR_REFRESH）
+    pub sensor_cache: crate::sensors::SensorData,
+    pub sensor_at: Option<Instant>,
 }
 
 /// 主板传感器的刷新间隔
 const BOARD_REFRESH: Duration = Duration::from_secs(5);
+/// SMART 的刷新间隔：温度以秒变、健康度以月变，十秒足够
+const STORAGE_REFRESH: Duration = Duration::from_secs(10);
+/// LHM 主读取（CPU 温度/功耗/电压/每核频率 + GPU 热点温度）的刷新间隔。
+///
+/// 实测本机 CPU 域 310ms / 119 个传感器：LHM 读每核 MSR 要逐核切换线程
+/// 亲和性，每次切换触发一次线程迁移，成本与核心数成正比。28 线程机器上
+/// 每拍读一次意味着占满单核的 39%（整机仅 1.4%，所以长期没被察觉），
+/// 但在 4 线程笔记本上就是近 10%。
+///
+/// 代价是 CPU 温度与功耗的刷新变为 2 秒一次。这是有意的取舍：温度本身的
+/// 物理变化尺度远慢于此，而监控工具自身烧掉三分之一个核心，比温度数字
+/// 晚一秒更难接受。
+const SENSOR_REFRESH: Duration = Duration::from_secs(2);
 
 impl SamplerCtx {
     /// 必须在采样线程内构造（WMI 静态查询依赖线程 COM 环境）
@@ -227,6 +247,10 @@ impl SamplerCtx {
             sensors,
             board: None,
             board_at: None,
+            storage_temps: Vec::new(),
+            storage_at: None,
+            sensor_cache: crate::sensors::SensorData::default(),
+            sensor_at: None,
             ping: PingProber::spawn(),
             netproc: netproc_handle.join().unwrap_or_else(|_| {
                 eprintln!("[sysscope] netproc init thread panicked");
@@ -377,11 +401,29 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
         }
         ctx.board_at = Some(Instant::now());
     }
-    let sensor_data = ctx
-        .sensors
-        .as_ref()
-        .map(|s| s.read())
-        .unwrap_or_default();
+    // SMART 低频刷新：这是整条链路里最昂贵的一步，绝不能每拍做
+    let storage_stale = ctx
+        .storage_at
+        .map(|t| t.elapsed() >= STORAGE_REFRESH)
+        .unwrap_or(true);
+    if storage_stale {
+        if let Some(v) = ctx.sensors.as_ref().and_then(|s| s.read_storage()) {
+            ctx.storage_temps = v;
+        }
+        ctx.storage_at = Some(Instant::now());
+    }
+    // LHM 主读取低频刷新：这是整条链路里最昂贵的一步（见 SENSOR_REFRESH）
+    let sensor_stale = ctx
+        .sensor_at
+        .map(|t| t.elapsed() >= SENSOR_REFRESH)
+        .unwrap_or(true);
+    if sensor_stale {
+        if let Some(d) = ctx.sensors.as_ref().map(|s| s.read()) {
+            ctx.sensor_cache = d;
+        }
+        ctx.sensor_at = Some(Instant::now());
+    }
+    let sensor_data = ctx.sensor_cache.clone();
     let gpu_procs = ctx.gpu_proc.sample().clone();
     let tops = sample_top_procs(&mut ctx.sys, elapsed_secs, &gpu_procs);
     let ts = SystemTime::now()
@@ -441,7 +483,7 @@ pub fn take_snapshot(ctx: &mut SamplerCtx, elapsed_secs: f64) -> Snapshot {
             net
         },
         storage: ctx.disk.sample(),
-        storage_temps: sensor_data.storage,
+        storage_temps: ctx.storage_temps.clone(),
         board: ctx.board.clone(),
         top_net: ctx.netproc.sample(&ctx.sys, elapsed_secs),
         top_cpu: tops.top_cpu,
@@ -663,6 +705,32 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(1000));
         }
+
+        // 上面的分解是把各采集器单独调用后相加，**不是应用真正付的代价** ——
+        // take_snapshot 里有若干低频闸（SENSOR_REFRESH / STORAGE_REFRESH /
+        // BOARD_REFRESH），昂贵的读取只在过期的那一拍发生。
+        // 这里直接量 take_snapshot 本身，也就是采样线程实际执行的东西。
+        println!("
+=== take_snapshot 实测（应用真实单拍成本）===");
+        let mut ctx = SamplerCtx::init();
+        let mut costs: Vec<f64> = Vec::new();
+        for _ in 0..12 {
+            let t = Instant::now();
+            let _ = take_snapshot(&mut ctx, 1.0);
+            costs.push(t.elapsed().as_secs_f64() * 1000.0);
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        let mut sorted = costs.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("  逐拍: {}", costs.iter().map(|c| format!("{c:.0}")).collect::<Vec<_>>().join(" "));
+        println!(
+            "  min {:.1} ms / median {:.1} ms / max {:.1} ms  （慢拍即低频读取到期的那一拍）",
+            sorted[0],
+            sorted[sorted.len() / 2],
+            sorted[sorted.len() - 1]
+        );
+        let avg: f64 = costs.iter().sum::<f64>() / costs.len() as f64;
+        println!("  平均 {avg:.1} ms —— 这才是与单核占用直接相关的数字");
 
         fn ctx_refresh(sys: &mut System) {
             sys.refresh_specifics(refresh_kind());

@@ -14,7 +14,10 @@ SysScope 监控六类对象 —— CPU、GPU、内存、磁盘、网络、进程
 概览页看实时曲线，详情页看出问题时真正需要的数字（热节流、功耗墙、磁盘队列、
 TCP 重传、每进程显存占用……）。
 
-单次采样约 **20 毫秒**，即使 0.5 秒档也只占用单核的几个百分点。
+典型单拍约 **13 毫秒**。通过 LibreHardwareMonitor 读温度要贵得多 —— 它会把采样
+线程逐个绑到每个核心上读 MSR，28 线程的 CPU 上一次刷新约 390 毫秒 —— 因此这项
+按 2 秒的独立节奏刷新，而非每拍执行。总体占用约**单核的 20%**（这台 28 线程机器
+整机 0.8%，4 线程笔记本约 5%）。
 
 ---
 
@@ -100,8 +103,8 @@ cd sensor-bridge && dotnet publish -c Release -r win-x64
 ### 测试
 
 ```bash
-cd src-tauri && cargo test                        # 50 项纯逻辑测试，CI 可跑
-cd src-tauri && cargo test -- --include-ignored   # 追加 11 项需真实硬件的测试
+cd src-tauri && cargo test                        # 53 项纯逻辑测试，CI 可跑
+cd src-tauri && cargo test -- --include-ignored   # 追加 12 项需真实硬件的测试
 node scripts/check-i18n.mjs                       # 校验翻译 key 是否齐整
 ```
 
@@ -133,10 +136,16 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
 | **LibreHardwareMonitor**（经 NativeAOT C ABI 桥） | 温度、CPU 功耗/电压、每核频率、SMART |
 | **sysinfo / IpHelper / Win32** | 进程表、连接表、CPU 拓扑 |
 
-关于 PDH 的一点经验：早期版本通过 WMI 查询 `Win32_PerfFormattedData_*`，
-单拍成本高达 **1.7 秒** —— 因为每个这类查询都会阻塞等待一个内部采样窗口。
-改用单一 PDH 查询句柄后，单拍降到 **20 毫秒**。如果你也在写 Windows 监控程序，
-**不要在循环里轮询格式化的 WMI 计数器**。
+给同样在写 Windows 监控程序的人两条经验。
+
+**不要在循环里轮询格式化的 WMI 计数器。** 早期版本通过 WMI 查询
+`Win32_PerfFormattedData_*`，单拍高达 **1.7 秒** —— 每个这类查询都会阻塞等待一个
+内部采样窗口。改用单一 PDH 查询句柄后，这部分降到约 1.5 毫秒。
+
+**逐核传感器读取的成本与核心数成正比，而且并不便宜。** LibreHardwareMonitor
+读每核 MSR 时要逐个切换线程亲和性；20 核 28 线程的 CPU 上，刷新 119 个传感器
+约需 310 毫秒。本项目里昂贵的采集器各有自己的刷新节奏（温度与功耗 2 秒、
+SMART 10 秒、风扇 5 秒），不跟随每拍。
 
 源码结构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
