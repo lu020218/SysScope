@@ -32,8 +32,10 @@ function renderTiles(
     v.textContent = fmt(it.value);
     if (warnAbove != null && it.value >= warnAbove) tile.classList.add("warn");
     const n = document.createElement("span");
-    // 传感器名来自主板固件，走 textContent
+    // 传感器名来自主板固件，走 textContent；瓦片较窄时名称会被截断，
+    // 挂 title 让完整名称可通过悬停查看
     n.textContent = it.name;
+    n.title = it.name;
     tile.append(v, n);
     el.appendChild(tile);
   }

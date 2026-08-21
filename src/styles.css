@@ -311,7 +311,10 @@ body {
   box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
-.gpu-card h2 {
+/* 型号名来自硬件，长度不可控：截断而非换行，否则标题占两行会把
+   头部统计挤成竖排（主板卡片曾出现过） */
+.gpu-card h2,
+#board-card h2 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1182,27 +1185,32 @@ body {
   margin-bottom: 7px;
 }
 
+/* grid 而非 flex-wrap：flex 会把放不下的最后一块单独甩到下一行
+   （5 个温度点曾渲染成 4+1，右侧留一大片空白）。
+   两个细节都是踩出来的：
+   - minmax 上限用 1fr 而非固定值。写 minmax(84px,132px) 时浏览器按**最大值**
+     排列数，577px 只排得下 4 列、右侧空 25px，等于没解决折行。
+   - auto-fill 而非 auto-fit。auto-fit 会塌缩空列并把剩余空间分给现有列，
+     只有两个风扇时会被拉成两条大长条；auto-fill 保留空列，瓦片保持等宽左对齐。 */
 .tiles {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
   gap: 8px;
 }
 
 .tile {
-  flex: 1 1 92px;
-  /* 上限防止读数少时瓦片被拉成大长条 */
-  max-width: 150px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.02);
 }
 
 .tile b {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 650;
   color: #d7dee8;
   font-variant-numeric: tabular-nums;
