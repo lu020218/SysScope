@@ -3,37 +3,49 @@ overlay, and exportable reports.
 
 ![dashboard](https://raw.githubusercontent.com/lu020218/SysScope/master/docs/images/dashboard.png)
 
-## New in 0.2.0
+## New in 0.3.0
 
-**The UI speaks English now.** Everything — panels, dialogs, tray menu, overlay
-and exported reports — ships in English and Simplified Chinese. It follows your
-Windows display language on first run; Settings → Language switches it. CSV and
-JSON exports keep English column names either way, so scripts that read them
-don't break.
+**Three tabs instead of one crowded grid.** The window now has *Dashboard*,
+*Processes* and *Hardware*. Processes moved out of the metric grid — where it
+only had room for a top 5 — into its own page showing the top 10 by CPU, memory,
+disk, network and GPU. Hardware moved out of a height-constrained dialog into a
+full page.
 
-**Hardware inventory.** A new panel tells you what the machine actually is,
-beyond what it is doing right now:
+**Threshold alerts.** When a metric stays over its threshold long enough
+(15 s by default, configurable), SysScope raises a system notification and
+records the event in the session, so exported reports carry an alert timeline.
+The check runs in the sampling thread rather than the UI — the panel is usually
+tucked in the tray when something goes wrong, and a hidden WebView gets throttled
+by the browser engine. A hysteresis band keeps a metric hovering at its threshold
+from firing repeatedly.
 
-- **CPU** — socket, cache sizes, stepping, microcode revision, instruction sets,
-  virtualisation state
-- **Memory** — every DIMM with part number, rated vs. configured speed, and which
-  slot it occupies, plus how many slots are free
-- **Graphics** — driver and VBIOS versions, PCIe link gen and width (current vs.
-  maximum), true VRAM size
-- **Storage** — media type, bus, firmware revision, SMART health per drive
-- **Network** — physical adapters only, with MAC, addresses, gateway, DNS and
-  negotiated link speed
-- **Motherboard / BIOS / OS** — board model and revision, BIOS version and date,
-  build number, install date, uptime
+**Session comparison.** Tick two recorded sessions and get a report with their
+curves overlaid and a delta table. Curves align on time *elapsed within each
+session*, because two runs start at different moments — and gaps stay gaps, since
+resampling would invent data points that were never measured. Deltas are shown
+with sign and percentage but no red/green: a higher frame rate is good, a higher
+temperature is not, and the report does not presume to know which you meant.
 
-One button copies the whole thing as text, which is what you want when filing a
-bug report. Reports embed it too, so a performance capture carries the
-configuration it was taken on.
+**Motherboard sensors.** Chassis fan speeds and board temperature points, read
+from the SuperIO chip — useful for answering whether a fan has stopped or whether
+VRM heat explains a CPU that keeps dropping clocks.
 
-**Privacy for exported reports.** Serial numbers and MAC addresses show in full
-in the app, but reports keep only their last four characters — reports get
-shared, and those values identify your machine. Settings → Privacy re-enables
-full values when you actually need them.
+## Fixed: SysScope was using twice the CPU it claimed
+
+Earlier versions documented "~20 ms per tick". The real figure was ~400 ms,
+because reading temperatures through LibreHardwareMonitor pins the sampling
+thread to each core in turn to read per-core MSRs — ~310 ms for 119 sensors on a
+20-core part, and **the cost scales with core count**.
+
+The wrong number survived because the benchmark that produced it never loaded the
+sensor bridge in release builds, and because the true cost — 1.4% of a 28-thread
+machine — is invisible in Task Manager. On a 4-thread laptop it was closer to 10%.
+
+Expensive collectors now run on their own cadence: temperatures and power every
+2 s, SMART every 10 s, fan speeds every 5 s. A typical tick is back to ~13 ms and
+total CPU use is roughly halved. Temperature refreshes every 2 s instead of every
+1 s — a deliberate trade, since temperature changes on a slower physical timescale
+than a monitor burning a third of a core can be justified.
 
 ## What it does
 
@@ -49,8 +61,11 @@ Six subsystems, each with a live chart and a detail tab that answers *why*:
 - **Disk** — IOPS, sub-millisecond response times, queue depth, SSD health/TBW
 - **Network** — latency with jitter and loss, TCP states, retransmit rate,
   link utilisation
-- **Processes** — top 5 by CPU, memory, disk, network **and GPU**; click a row
-  for threads, handles, private bytes, page faults, affinity
+- **Motherboard** — chassis fan RPM and board temperature points
+
+**Hardware inventory** — CPU stepping, cache and microcode; every DIMM with part
+number and slot; GPU VBIOS and PCIe link width; disk media, bus and firmware;
+physical network adapters. One click copies it all as text for a bug report.
 
 **FPS overlay** — follows the foreground app, shows frame rate plus 1% / 0.1%
 lows, frame-time percentiles and stutter counts (ETW, same source as PresentMon).
@@ -67,13 +82,6 @@ interactive HTML report, raw CSV/JSON, or a Markdown summary.
 | Startup to visible | 0.16 s |
 | Memory (tray-resident) | ~140 MB |
 
-Temperatures come from LibreHardwareMonitor, which reads per-core MSRs by pinning
-the sampling thread to each core in turn — ~390 ms on a 28-thread CPU. That read
-runs on a 2-second cadence rather than every tick, so temperature and package
-power refresh every 2 s while everything else stays at your chosen interval.
-SMART refreshes every 10 s, fan speeds every 5 s, and the hardware inventory is
-read once and cached.
-
 ## Install
 
 Download the `.msi` below. Windows 10/11 x64.
@@ -86,9 +94,15 @@ Download the `.msi` below. Windows 10/11 x64.
 - There is no auto-start toggle: Windows blocks elevated apps from normal startup
   entries. Use Task Scheduler with "run with highest privileges" and the
   `--minimized` flag if you want it at boot.
-- Reports are written to `Documents\SysScope\reports`.
+- Reports are written to `Documents\SysScope\reports`, with serial numbers and MAC
+  addresses masked to their last four characters. Settings → Privacy turns full
+  values back on.
 - Full GPU telemetry needs an NVIDIA card; AMD/Intel GPUs report load and VRAM.
 - SSD SMART data may be hidden by Intel RST/VMD.
+- Motherboard sensors need a SuperIO chip LibreHardwareMonitor recognises; the
+  card hides itself when nothing is reported.
+- The UI ships in English and Simplified Chinese, following your Windows display
+  language by default (Settings → Language to change it).
 
 ## Notes
 
