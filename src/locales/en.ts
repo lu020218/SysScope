@@ -28,6 +28,11 @@ const en: Record<Keys, string> = {
   "toolbar.overlay.title": "Show / hide the FPS overlay",
   "toolbar.interval.title": "Sampling interval",
 
+  // Top-level views
+  "view.home": "Dashboard",
+  "view.procs": "Processes",
+  "view.hardware": "Hardware",
+
   // Card titles and shared tabs
   "card.mem": "Memory",
   "card.net": "Network",
@@ -37,7 +42,6 @@ const en: Record<Keys, string> = {
   "board.stat.topFan": "Top fan",
   "board.fans": "Fan speeds",
   "board.temps": "Temperature points",
-  "card.procs": "Top 5 processes",
   "tab.overview": "Overview",
   "tab.detail": "Details",
 
@@ -209,7 +213,6 @@ const en: Record<Keys, string> = {
   "settings.reset": "Restore defaults",
 
   // Hardware info dialog
-  "win.hardware": "Hardware info",
   "hw.title": "Hardware",
   "hw.copy": "Copy as text",
   "hw.copied": "Copied",

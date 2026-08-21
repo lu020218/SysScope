@@ -27,7 +27,9 @@ static SAMPLE_INTERVAL_MS: AtomicU64 = AtomicU64::new(1000);
 
 const MIN_INTERVAL_MS: u64 = 500;
 const MAX_INTERVAL_MS: u64 = 5000;
-const TOP_N: usize = 5;
+/// 进程榜单条数。进程从主页卡片移到独立标签页后，5 条撑不满一页；
+/// 排序的是同一份进程表，取 10 条与取 5 条成本相同。
+const TOP_N: usize = 10;
 
 #[derive(Serialize, Clone)]
 pub struct CpuSnapshot {

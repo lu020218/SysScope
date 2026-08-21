@@ -1234,3 +1234,109 @@ body {
 .tile.warn b {
   color: var(--warn);
 }
+
+/* ---------- 顶层视图（主页 / 进程 / 硬件） ---------- */
+
+.views {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.view.hidden {
+  display: none;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.view-tabs button {
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 6px 13px;
+  cursor: pointer;
+}
+
+.view-tabs button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.view-tabs button.active {
+  color: var(--text);
+  font-weight: 600;
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+/* 进程页：每类一块面板，随宽度自适应列数 */
+.proc-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-content: start;
+  gap: 14px;
+  padding: 14px 18px 18px;
+}
+
+.proc-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.proc-panel h4 {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin-bottom: 8px;
+}
+
+/* 硬件页：沿用弹窗时期的导航 + 内容两栏，只是不再受弹窗高度约束 */
+.hw-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px 18px;
+}
+
+.hw-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hw-page-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hw-page .hw-body {
+  flex: 1;
+  min-height: 0;
+}

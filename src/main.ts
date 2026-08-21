@@ -18,6 +18,7 @@ import * as procdetail from "./modals/procdetail";
 import * as sessions from "./modals/sessions";
 import * as settings from "./modals/settings";
 import { initAllTabs } from "./tabs";
+import { activeView, initViews, onViewChange } from "./views";
 import { thresholds } from "./thresholds";
 import type { Snapshot, StaticInfo } from "./types";
 
@@ -41,6 +42,13 @@ async function main() {
     void invoke("set_language", { lang: currentLang() }).catch(() => {});
   });
   await step("tabs", initAllTabs);
+  await step("views", () => {
+    initViews();
+    // 硬件数据首次进入该视图时才采集，不在启动路径上
+    onViewChange((v) => {
+      if (v === "hardware") void hwinfo.activate();
+    });
+  });
   await step("procdetail", procdetail.init);
   await step("settings", settings.init);
   // 阈值与告警配置下发到后端（判定在采样线程，见 alerts.rs）
@@ -93,19 +101,24 @@ async function main() {
       dwrite: s.storage.disks.reduce((a, d) => a + d.write_bps, 0),
     };
     gpu.bufferValues(s, values);
+    // 缓冲始终写入，与当前视图无关：切回主页时曲线要是连续的，
+    // 而不是从切回来那一刻重新开始画
     buffers.commit(s.ts / 1000, values);
 
-    const th = thresholds();
-    const start = buffers.windowStart(windowSec);
-    const ts = buffers.ts.slice(start);
-
-    cpu.update(s, th, ts, start);
-    mem.update(s, th, ts, start);
-    gpu.update(s, th, ts, start);
-    disk.update(s, ts, start);
-    net.update(s, ts, start);
-    board.update(s);
-    procs.update(s);
+    const view = activeView();
+    if (view === "home") {
+      const th = thresholds();
+      const start = buffers.windowStart(windowSec);
+      const ts = buffers.ts.slice(start);
+      cpu.update(s, th, ts, start);
+      mem.update(s, th, ts, start);
+      gpu.update(s, th, ts, start);
+      disk.update(s, ts, start);
+      net.update(s, ts, start);
+      board.update(s);
+    } else if (view === "procs") {
+      procs.update(s);
+    }
   });
 
   // 无边框窗口控制键

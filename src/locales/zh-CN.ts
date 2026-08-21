@@ -22,6 +22,11 @@ const zh = {
   "toolbar.overlay.title": "显示/隐藏 FPS 悬浮窗",
   "toolbar.interval.title": "采样间隔",
 
+  // 顶层视图
+  "view.home": "主页",
+  "view.procs": "进程",
+  "view.hardware": "硬件",
+
   // 卡片标题与通用标签页
   "card.mem": "内存",
   "card.net": "网络",
@@ -31,7 +36,6 @@ const zh = {
   "board.stat.topFan": "最高转速",
   "board.fans": "风扇转速",
   "board.temps": "温度点",
-  "card.procs": "进程 Top 5",
   "tab.overview": "概览",
   "tab.detail": "详情",
 
@@ -200,7 +204,6 @@ const zh = {
   "settings.reset": "恢复默认",
 
   // 硬件信息弹窗
-  "win.hardware": "硬件信息",
   "hw.title": "硬件信息",
   "hw.copy": "复制为文本",
   "hw.copied": "已复制",

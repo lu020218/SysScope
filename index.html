@@ -14,7 +14,6 @@
         </div>
         <div class="winctrl">
           <button id="ontop-toggle" class="win-settings" data-i18n-title="win.onTop" title="窗口置顶"><span class="pin-glyph">&#xE840;</span></button>
-          <button id="hw-btn" class="win-settings" data-i18n-title="win.hardware" title="硬件信息">&#xE977;</button>
           <button id="settings-btn" class="win-settings" data-i18n-title="win.settings" title="设置">&#xE713;</button>
           <button id="win-min" data-i18n-title="win.min" title="最小化">&#xE921;</button>
           <button id="win-max" data-i18n-title="win.max" title="最大化 / 还原">&#xE922;</button>
@@ -23,6 +22,12 @@
       </header>
 
       <div class="toolbar">
+        <div class="view-tabs" id="view-tabs">
+          <button data-view="home" class="active" data-i18n="view.home">主页</button>
+          <button data-view="procs" data-i18n="view.procs">进程</button>
+          <button data-view="hardware" data-i18n="view.hardware">硬件</button>
+        </div>
+        <span class="toolbar-sep"></span>
         <!-- 录制中时文本由 sessions.ts 改写为计时；这里的空闲态文案需要 data-i18n，
              否则后端状态轮询成功之前会一直显示 HTML 里写死的中文 -->
         <button class="toggle-btn" id="record-btn" data-i18n="rec.startBtn" data-i18n-title="toolbar.record.title" title="开始/停止记录监控会话">● 记录</button>
@@ -43,7 +48,9 @@
 
       <div id="crash-warn" class="crash-warn hidden" data-i18n="app.crashWarn">采集线程发生异常，已自动重启，数据可能有短暂缺口</div>
 
-      <main class="grid">
+      <main class="views">
+        <div class="view" data-view="home">
+        <div class="grid">
         <section class="card" id="cpu-card">
           <div class="card-head">
             <h2>CPU</h2>
@@ -249,50 +256,47 @@
           </div>
         </section>
 
-        <section class="card" id="proc-card">
-          <div class="card-head">
-            <h2 data-i18n="card.procs">进程 Top 5</h2>
-          </div>
-          <div class="proc-cols">
-            <div class="proc-col">
+        </div>
+        </div>
+
+        <div class="view hidden" data-view="procs">
+          <div class="proc-page">
+            <div class="proc-panel">
               <h4>CPU</h4>
               <div id="top-cpu" class="proc-list"></div>
             </div>
-            <div class="proc-col">
+            <div class="proc-panel">
               <h4 data-i18n="procs.col.mem">内存</h4>
               <div id="top-mem" class="proc-list"></div>
             </div>
-            <div class="proc-col">
+            <div class="proc-panel">
               <h4 data-i18n="procs.col.net">网络</h4>
               <div id="top-net" class="proc-list"></div>
             </div>
-            <div class="proc-col">
+            <div class="proc-panel">
               <h4 data-i18n="procs.col.disk">磁盘</h4>
               <div id="top-disk" class="proc-list"></div>
             </div>
-            <div class="proc-col">
+            <div class="proc-panel">
               <h4 data-i18n="procs.col.gpu">GPU · 显存</h4>
               <div id="top-gpu" class="proc-list"></div>
             </div>
           </div>
-        </section>
-      </main>
+        </div>
 
-      <div id="hw-modal" class="modal hidden">
-        <div class="modal-box hw-box">
-          <div class="modal-head">
-            <h3 data-i18n="hw.title">硬件信息</h3>
-            <div class="modal-head-actions">
+        <div class="view hidden" data-view="hardware">
+          <div class="hw-page">
+            <div class="hw-page-head">
+              <span class="hw-page-title" data-i18n="hw.title">硬件信息</span>
               <button id="hw-copy" class="toggle-btn" data-i18n="hw.copy">复制为文本</button>
-              <button id="hw-close" data-i18n-title="common.close" title="关闭">×</button>
+            </div>
+            <div class="hw-body">
+              <div class="hw-nav" id="hw-nav"></div>
+              <div class="hw-content" id="hw-content"></div>
             </div>
           </div>
-          <div class="hw-body">
-            <div class="hw-nav" id="hw-nav"></div>
-            <div class="hw-content" id="hw-content"></div>
-          </div>
         </div>
-      </div>
+      </main>
 
       <div id="settings-modal" class="modal hidden">
         <div class="modal-box settings-box">

@@ -158,35 +158,26 @@ export async function ensureLoaded() {
   }
 }
 
-export function init() {
-  const modal = $("hw-modal");
-  const close = () => modal.classList.add("hidden");
-
-  $("hw-btn").addEventListener("click", async () => {
-    modal.classList.remove("hidden");
-    if (!data) {
-      // 首次采集在后端约 300ms（NVML 初始化占大头），之后命中缓存瞬回
-      $("hw-content").textContent = t("hw.loading");
-      try {
-        data = await invoke<HwInfo>("hardware_info");
-      } catch (e) {
-        $("hw-content").textContent = t("hw.failed", { err: String(e) });
-        return;
-      }
+/** 首次进入硬件视图时才采集：后端约 300ms（NVML 初始化占大头），之后命中缓存 */
+export async function activate() {
+  if (!data) {
+    $("hw-content").textContent = t("hw.loading");
+    try {
+      data = await invoke<HwInfo>("hardware_info");
+    } catch (e) {
+      $("hw-content").textContent = t("hw.failed", { err: String(e) });
+      return;
     }
-    renderNav();
-    renderContent();
-  });
+  }
+  renderNav();
+  renderContent();
+}
 
+export function init() {
   $("hw-copy").addEventListener("click", async () => {
     const btn = $("hw-copy");
     await navigator.clipboard.writeText(asText());
     btn.textContent = t("hw.copied");
     setTimeout(() => (btn.textContent = t("hw.copy")), 1500);
-  });
-
-  $("hw-close").addEventListener("click", close);
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) close();
   });
 }
