@@ -118,8 +118,13 @@ CPU、GPU、内存、FPS 等关键指标，并支持将监控数据导出为报�
   NativeAOT 需 rd.xml 强制生成 DeviceIOControl 泛型封送元数据（见 sensor-bridge/rd.xml）
 - **方案 B2（B1 受阻时）**：通过 `hostfxr` 在 SysScope 进程内托管 .NET 运行时加载
   LibreHardwareMonitorLib（self-contained 部署），仍为进程内库调用
-- 注意：CPU 温度等底层传感器访问依赖其内核驱动（PawnIO/WinRing0），
-  该驱动随库加载，同样需要管理员权限——与 FPS 的 ETW 采集提权要求一致，可合并处理
+- 注意：CPU 温度等底层传感器访问依赖内核驱动，需要管理员权限——与 FPS 的 ETW
+  采集提权要求一致，可合并处理。
+  实施结果：LHM 0.9.6 起弃用 WinRing0 改用 PawnIO。WinRing0 会向磁盘释放驱动文件
+  （在本项目中即 sysscope.sys），且已被 Defender 列为易受攻击驱动就地隔离；PawnIO
+  是用户单独安装的签名驱动，通过 `\\?\GLOBALROOT\Device\PawnIO` 直接通信，不释放
+  任何文件。代价是它成了外部前置依赖，缺失时温度静默变 N/A —— 故在硬件页显式
+  报出驱动状态（hwinfo.rs 的 pawnio_status）
 - .NET 静态库链接不可行，故"静态库"路径不适用，统一采用动态库形态
 
 ## 7. 里程碑建议

@@ -295,6 +295,74 @@ fn microcode() -> Option<String> {
     }
 }
 
+/// PawnIO 驱动状态。LHM 0.9.6 起用 PawnIO 取代 WinRing0 读取 MSR / SuperIO，
+/// 而 PawnIO 由用户单独安装 —— 缺失时温度、功耗、风扇转速会静默变成 N/A。
+/// 静默降级正是"换了散热器温度就没了"那类误判的来源，所以这里显式报出状态，
+/// 让"没装驱动"和"这块硬件没有该传感器"在界面上可区分。
+///
+/// 读注册表而不是试着打开 \?\GLOBALROOT\Device\PawnIO：设备打开需要管理员，
+/// 未提权运行时会把"已安装"误报成"未安装"。
+fn pawnio_status() -> Option<String> {
+    use windows::core::w;
+    use windows::Win32::System::Registry::{
+        RegCloseKey, RegGetValueW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, RRF_RT_REG_SZ,
+    };
+    unsafe {
+        // 驱动服务键是"装没装"的判据；Uninstall 键只用于取版本号显示，
+        // 取不到版本不代表没装（安装方式不同可能没写 Uninstall 项）
+        let mut svc = HKEY::default();
+        if RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            w!(r"SYSTEM\CurrentControlSet\Services\PawnIO"),
+            0,
+            KEY_READ,
+            &mut svc,
+        )
+        .is_err()
+        {
+            return Some("hw.sensor.driverMissing".into());
+        }
+        let _ = RegCloseKey(svc);
+
+        let mut key = HKEY::default();
+        if RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            w!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO"),
+            0,
+            KEY_READ,
+            &mut key,
+        )
+        .is_err()
+        {
+            return Some("hw.sensor.driverOk".into());
+        }
+        let mut buf = [0u16; 64];
+        let mut size = std::mem::size_of_val(&buf) as u32;
+        let st = RegGetValueW(
+            key,
+            None,
+            w!("DisplayVersion"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut _),
+            Some(&mut size),
+        );
+        let _ = RegCloseKey(key);
+        if st.is_err() {
+            return Some("hw.sensor.driverOk".into());
+        }
+        // size 是字节数且含结尾 NUL
+        let chars = (size as usize / 2).saturating_sub(1).min(buf.len());
+        let ver = String::from_utf16_lossy(&buf[..chars]);
+        let ver = ver.trim();
+        if ver.is_empty() {
+            Some("hw.sensor.driverOk".into())
+        } else {
+            Some(format!("PawnIO {ver}"))
+        }
+    }
+}
+
 /// 开机时长。用 GetTickCount64 而非 Win32_OperatingSystem.LastBootUpTime：
 /// 免一次 WMI 往返，且不受系统时钟调整影响。
 fn uptime() -> String {
@@ -810,6 +878,7 @@ fn collect_system(hub: &WmiHub) -> Vec<HwGroup> {
             ),
             HwItem::new("hw.os.uptime", Some(uptime())),
             HwItem::new("hw.os.hostname", sysinfo::System::host_name()),
+            HwItem::new("hw.os.sensorDriver", pawnio_status()),
         ],
     }]
 }

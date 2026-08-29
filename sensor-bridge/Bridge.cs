@@ -47,18 +47,46 @@ public static class Bridge
                 {
                     return 0;
                 }
-                var computer = new Computer
+                // 主板域提供机箱风扇转速与 VRM / 芯片组温度 —— 回答"CPU 降频
+                // 是不是因为供电过热"这类问题，其余数据源给不出。这些传感器挂在
+                // 主板的 SubHardware（SuperIO 芯片）下，不在 Motherboard 本身上。
+                //
+                // 但它必须是可降级的：Open() 期间的 LpcIO.Detect 会通过
+                // Ring0 直接读写 I/O 端口，而华硕奥创中心（AsIO3.sys）、微星
+                // Dragon Center 等厂商工具会独占 SuperIO/EC。争抢时 Open()
+                // 直接抛异常，若不处理就会连 CPU 温度、功耗、SMART 一起丢掉 ——
+                // 那些本来完全不依赖 LPC，只走 MSR 与 IOCTL。
+                //
+                // 因此先带主板域尝试，失败则关掉主板域重试一次：宁可少一张
+                // 主板卡片，也不能让整个传感器桥陪葬。
+                Computer computer = null;
+                foreach (var withBoard in new[] { true, false })
                 {
-                    IsCpuEnabled = true,
-                    IsStorageEnabled = true,
-                    IsGpuEnabled = true,
-                    // 主板域提供机箱风扇转速与 VRM / 芯片组温度 —— 回答
-                    // "CPU 降频是不是因为供电过热"这类问题，其余数据源给不出。
-                    // 这些传感器挂在主板的 SubHardware（SuperIO 芯片）下，
-                    // 不在 Motherboard 硬件本身上。
-                    IsMotherboardEnabled = true,
-                };
-                computer.Open();
+                    var candidate = new Computer
+                    {
+                        IsCpuEnabled = true,
+                        IsStorageEnabled = true,
+                        IsGpuEnabled = true,
+                        IsMotherboardEnabled = withBoard,
+                    };
+                    try
+                    {
+                        candidate.Open();
+                        computer = candidate;
+                        break;
+                    }
+                    catch (Exception e)
+                    {
+                        // 保留首次失败原因供 last_error 查看，即便退化后成功
+                        _lastError = (withBoard ? "motherboard domain failed, retrying without it: " : "")
+                            + e;
+                        try { candidate.Close(); } catch { /* 已失败的实例，忽略 */ }
+                    }
+                }
+                if (computer == null)
+                {
+                    return -1;
+                }
                 _computer = computer;
             }
             return 0;

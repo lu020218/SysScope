@@ -3,6 +3,30 @@ overlay, and exportable reports.
 
 ![dashboard](https://raw.githubusercontent.com/lu020218/SysScope/master/docs/images/dashboard.png)
 
+## New in 0.3.1
+
+**Windows Defender no longer quarantines SysScope's driver.** Temperatures, package
+power and fan speeds are read through a kernel driver. Until now that driver was
+WinRing0, which Defender removes on sight as `VulnerableDriver:WinNT/Winring0` —
+and it is right to: WinRing0 hands any process on the machine unrestricted MSR,
+port and physical-memory access. When it got quarantined, temperature and power
+silently turned into N/A, which is easy to mistake for a hardware fault.
+
+SysScope now uses [PawnIO](https://pawnio.eu/) instead. It runs sensor routines as
+sandboxed bytecode inside a signed driver, so the kernel only executes the specific
+verified operations a sensor needs, and SysScope no longer writes a `.sys` file to
+disk at all.
+
+The trade-off is that PawnIO is installed separately — install it once from
+[pawnio.eu](https://pawnio.eu/) and temperature, power and fan readings come back.
+Without it, those read N/A and everything else works as before. The Hardware tab
+now shows a **Sensor driver** row, so a missing driver is distinguishable from a
+sensor your board simply does not have.
+
+If Defender already quarantined `sysscope.sys` from an earlier version, nothing
+needs to be restored — that file is gone for good, and this version never creates
+it.
+
 ## New in 0.3.0
 
 **Three tabs instead of one crowded grid.** The window now has *Dashboard*,
@@ -91,6 +115,9 @@ Download the `.msi` below. Windows 10/11 x64.
 - **Administrator rights are required.** The app requests elevation on launch —
   FPS capture needs an ETW kernel session and temperatures need a kernel driver.
   Everything else still works if you decline, but those metrics read N/A.
+- **CPU temperature, package power and fan speeds need [PawnIO](https://pawnio.eu/)**,
+  a small signed kernel driver installed separately. Without it those readings show
+  N/A; the Hardware tab tells you whether it is installed.
 - There is no auto-start toggle: Windows blocks elevated apps from normal startup
   entries. Use Task Scheduler with "run with highest privileges" and the
   `--minimized` flag if you want it at boot.

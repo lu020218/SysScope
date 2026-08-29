@@ -73,6 +73,18 @@ Grab the latest installer from the [Releases page](../../releases).
 - **Administrator rights** — the app requests elevation on launch. FPS capture
   needs an ETW kernel session and temperature readings need a kernel driver;
   neither works without it. Everything else degrades gracefully.
+- **[PawnIO](https://pawnio.eu/)** — required for CPU temperature, package power,
+  and motherboard fan speeds. It is a small signed kernel driver, installed
+  separately and used by LibreHardwareMonitor to read MSRs and the SuperIO chip.
+  Without it those readings show N/A; everything else still works. The Hardware
+  tab reports whether it is installed, under *Sensor driver*.
+
+  SysScope deliberately does not bundle its own driver. Earlier versions relied on
+  WinRing0, which Microsoft Defender now quarantines on sight as
+  `VulnerableDriver:WinNT/Winring0` — correctly, since it exposes unrestricted
+  MSR and physical-memory access to any process. PawnIO replaces it with a
+  sandboxed bytecode interpreter, so the kernel only ever runs the specific
+  verified routines a sensor needs.
 - WebView2 runtime — preinstalled on Windows 11 and recent Windows 10
 - NVIDIA GPUs get the full metric set (via NVML). AMD and Intel GPUs fall back to
   load and VRAM via performance counters.

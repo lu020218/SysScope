@@ -287,6 +287,9 @@ const zh = {
   "hw.os.installed": "安装日期",
   "hw.os.uptime": "已运行",
   "hw.os.hostname": "计算机名",
+  "hw.os.sensorDriver": "传感器驱动",
+  "hw.sensor.driverOk": "已安装",
+  "hw.sensor.driverMissing": "未安装（温度 / 功耗 / 转速不可用）",
 
   // 悬浮窗（窄条，标签必须短）
   "osd.mem": "内存",

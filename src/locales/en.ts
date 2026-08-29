@@ -296,6 +296,9 @@ const en: Record<Keys, string> = {
   "hw.os.installed": "Installed",
   "hw.os.uptime": "Uptime",
   "hw.os.hostname": "Computer name",
+  "hw.os.sensorDriver": "Sensor driver",
+  "hw.sensor.driverOk": "Installed",
+  "hw.sensor.driverMissing": "Not installed (no temperature / power / fan)",
 
   // Overlay strip — keep these abbreviated, the window sizes to its content
   "osd.mem": "MEM",
