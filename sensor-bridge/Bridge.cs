@@ -246,6 +246,102 @@ public static class Bridge
     }
 
     /// <summary>
+    /// 诊断：列出所有传感器的 硬件类型 / 传感器类型 / 名称 / 当前值。
+    ///
+    /// 加这个导出的直接原因：LHM 0.9.6 把 Intel 混合架构的每核心时钟从
+    /// "CPU Core #n" 改名为 "P-Core #n" / "E-Core #n"，SensorsJson 里按名字
+    /// 前缀做的过滤器随之静默失效，core_clocks 变成空数组，而传感器总数
+    /// 不变（119 个），从计时导出上完全看不出来。上游改名让按名过滤失效是
+    /// 会反复发生的一类问题，需要一个能直接看到名字的手段。
+    /// </summary>
+    /// <summary>
+    /// 每核心当前频率的传感器名随 LHM 版本变化：0.9.4 是 "CPU Core #n"；
+    /// 0.9.6 起 Intel 混合架构改为 "P-Core #n" / "E-Core #n"（AMD 与非混合
+    /// Intel 仍为 "CPU Core #n"）。三种命名都认。
+    ///
+    /// 排除 "Bus Speed"（不是核心频率）与 "(Effective)" 变体（有效频率是另一
+    /// 个口径，同时收进来会让核心数翻倍）。
+    ///
+    /// 这个过滤器曾在升级到 0.9.6 后静默失效：名字不再匹配，core_clocks 变成
+    /// 空数组，前端的每核心频率网格随之空掉，而 CPU 域的传感器总数仍是 119，
+    /// 从计数上完全看不出来。改名不会报错，只会让匹配数悄悄归零。
+    /// </summary>
+    private static bool IsCoreClock(string name)
+    {
+        if (name.Contains("Effective"))
+        {
+            return false;
+        }
+        return name.StartsWith("CPU Core #")
+            || name.StartsWith("P-Core #")
+            || name.StartsWith("E-Core #");
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "sysscope_sensor_names_json")]
+    public static unsafe int SensorNamesJson(byte* buf, int len)
+    {
+        try
+        {
+            lock (Lock)
+            {
+                if (_computer == null || buf == null || len <= 0)
+                {
+                    return -1;
+                }
+                var sb = new StringBuilder(8192);
+                sb.Append('[');
+                bool first = true;
+                foreach (var hw in _computer.Hardware)
+                {
+                    hw.Update();
+                    foreach (var sensor in hw.Sensors)
+                    {
+                        if (!first)
+                        {
+                            sb.Append(',');
+                        }
+                        first = false;
+                        sb.Append("{\"hw\":");
+                        AppendJsonString(sb, hw.HardwareType.ToString());
+                        sb.Append(",\"type\":");
+                        AppendJsonString(sb, sensor.SensorType.ToString());
+                        sb.Append(",\"name\":");
+                        AppendJsonString(sb, sensor.Name);
+                        sb.Append(",\"value\":");
+                        if (sensor.Value is { } v)
+                        {
+                            AppendNum(sb, v);
+                        }
+                        else
+                        {
+                            sb.Append("null");
+                        }
+                        sb.Append('}');
+                    }
+                }
+                sb.Append(']');
+
+                var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+                if (bytes.Length >= len)
+                {
+                    return -1;
+                }
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    buf[i] = bytes[i];
+                }
+                buf[bytes.Length] = 0;
+                return bytes.Length;
+            }
+        }
+        catch (Exception e)
+        {
+            _lastError = e.ToString();
+            return -1;
+        }
+    }
+
+    /// <summary>
     /// 硬盘 SMART（温度、健康度、累计写入），与每拍调用的 SensorsJson 分开导出。
     ///
     /// 分开的依据是实测：LHM 的 Storage.Update() 走 SMART IOCTL，本机两块 NVMe
@@ -524,8 +620,7 @@ public static class Bridge
                             {
                                 cpuPower = value;
                             }
-                            else if (s.SensorType == SensorType.Clock &&
-                                     s.Name.StartsWith("CPU Core") && !s.Name.Contains("Bus"))
+                            else if (s.SensorType == SensorType.Clock && IsCoreClock(s.Name))
                             {
                                 coreClocks.Add(value);
                             }
@@ -587,14 +682,18 @@ public static class Bridge
                     AppendNum(sb, cpuTemp);
                     sb.Append(',');
                 }
-                if (cpuPower >= 0)
+                // 用 > 0 而非 >= 0：驱动不可用时 LHM 仍然暴露 CPU Package 功耗
+                // 传感器，只是值恒为 0。0 W 在运行中的 CPU 上物理上不可能出现，
+                // 放行它只会让界面显示"0 W"——比"N/A"更糟，因为它看起来是个读数
+                if (cpuPower > 0)
                 {
                     sb.Append("\"cpu_power\":");
                     AppendNum(sb, cpuPower);
                     sb.Append(',');
                 }
                 var cpuVoltage = cpuVoltagePreferred >= 0 ? cpuVoltagePreferred : cpuVoltageAny;
-                if (cpuVoltage >= 0)
+                // 同上：0 V 同样不是有效读数
+                if (cpuVoltage > 0)
                 {
                     sb.Append("\"cpu_voltage\":");
                     sb.Append(cpuVoltage.ToString("0.###", CultureInfo.InvariantCulture));

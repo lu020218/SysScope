@@ -40,6 +40,16 @@ pub struct NamedValue {
 
 #[cfg(test)]
 #[derive(serde::Deserialize, Debug, Clone)]
+pub struct SensorEntry {
+    pub hw: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub name: String,
+    pub value: Option<f32>,
+}
+
+#[cfg(test)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct DomainTiming {
     pub name: String,
     #[serde(rename = "type")]
@@ -73,6 +83,9 @@ pub struct SensorBridge {
     /// 用 cfg(test) 门控而非 allow(dead_code)，避免把"未使用"当成常态忽略
     #[cfg(test)]
     timing_json: Option<unsafe extern "C" fn(*mut u8, i32) -> i32>,
+    /// 诊断专用：全部传感器的名称与类型。同样 cfg(test) 门控
+    #[cfg(test)]
+    names_json: Option<unsafe extern "C" fn(*mut u8, i32) -> i32>,
     shutdown: unsafe extern "C" fn(),
 }
 
@@ -107,6 +120,11 @@ impl SensorBridge {
                 .get::<unsafe extern "C" fn(*mut u8, i32) -> i32>(b"sysscope_timing_json")
                 .ok()
                 .map(|f| *f);
+            #[cfg(test)]
+            let names_json = lib
+                .get::<unsafe extern "C" fn(*mut u8, i32) -> i32>(b"sysscope_sensor_names_json")
+                .ok()
+                .map(|f| *f);
             let shutdown = *lib
                 .get::<unsafe extern "C" fn()>(b"sysscope_sensors_shutdown")
                 .ok()?;
@@ -118,6 +136,8 @@ impl SensorBridge {
                 storage_json,
                 #[cfg(test)]
                 timing_json,
+                #[cfg(test)]
+                names_json,
                 shutdown,
             })
         }
@@ -137,6 +157,20 @@ impl SensorBridge {
     pub fn read_timings(&self) -> Option<Vec<DomainTiming>> {
         let f = self.timing_json?;
         let mut buf = vec![0u8; 8192];
+        let n = unsafe { f(buf.as_mut_ptr(), buf.len() as i32) };
+        if n <= 0 {
+            return None;
+        }
+        serde_json::from_slice(&buf[..n as usize]).ok()
+    }
+
+    /// 诊断：全部传感器的名称与类型。用来发现上游改名 —— SensorsJson 里
+    /// 按名字前缀做的过滤器一旦失配就静默返回空值，传感器总数却不变，
+    /// 只看计数根本发现不了（LHM 0.9.6 的 P-Core/E-Core 改名即为一例）。
+    #[cfg(test)]
+    pub fn read_sensor_names(&self) -> Option<Vec<SensorEntry>> {
+        let f = self.names_json?;
+        let mut buf = vec![0u8; 65536];
         let n = unsafe { f(buf.as_mut_ptr(), buf.len() as i32) };
         if n <= 0 {
             return None;
@@ -279,11 +313,37 @@ mod tests {
             None => println!("no motherboard sensors reported"),
         }
         // 两个耗时分开量：前者每拍都付，后者按 BOARD_REFRESH 秒级付一次
+        // 逐字段打印而非只打温度：缺驱动时"丢哪些字段"要能直接看出来，
+        // 否则只能从传感器总数的差值去猜
         println!(
-            "cpu_temp: {:?}
-  per-tick sensors.read(): {}
-  board read (low freq): {}",
+            "cpu_temp: {:?}  cpu_power: {:?}  cpu_voltage: {:?}
+core_clocks: {} 个 {:?}
+gpu_hotspot: {:?}  gpu_fan_rpm: {:?}  gpu_vram_temp: {:?}
+storage(SMART): {} 个",
             data.cpu_temp,
+            data.cpu_power,
+            data.cpu_voltage,
+            data.core_clocks.len(),
+            data.core_clocks.iter().take(4).collect::<Vec<_>>(),
+            data.gpu_hotspot,
+            data.gpu_fan_rpm,
+            data.gpu_vram_temp,
+            bridge.read_storage().unwrap_or_default().len()
+        );
+        // 时钟传感器按名字前缀过滤，改名即静默失效 —— 把实际名字打出来
+        if let Some(entries) = bridge.read_sensor_names() {
+            let clocks: Vec<_> = entries
+                .iter()
+                .filter(|e| e.hw == "Cpu" && e.kind == "Clock")
+                .collect();
+            println!("=== CPU 时钟传感器（{} 个）===", clocks.len());
+            for e in &clocks {
+                println!("    {:<24} {:?}", e.name, e.value);
+            }
+        }
+        println!(
+            "  per-tick sensors.read(): {}
+  board read (low freq): {}",
             stat(&mut all),
             stat(&mut brd)
         );
