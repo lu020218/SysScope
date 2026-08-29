@@ -38,5 +38,9 @@ jobs:
         with:
           files: src-tauri/target/release/bundle/msi/*.msi
           body_path: docs/RELEASE_NOTES.md
-          draft: true
+          # 直接发布而非建草稿。草稿只有有推送权限的人看得见 —— v0.1.0 到
+          # v0.3.1 四个版本都因此躺在草稿里从未公开，匿名访客打开 releases
+          # 页面看到的是"There aren't any releases here"，README 里那句
+          # "Download the .msi below" 对所有人都是失效的。
+          draft: false
           generate_release_notes: false
