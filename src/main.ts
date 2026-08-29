@@ -81,6 +81,20 @@ async function main() {
   disk.init();
   net.init();
 
+  // 传感器驱动缺失引导。只查一次：驱动装卸不会在程序运行期间发生，
+  // 而这条横幅要在三个标签页下都可见，所以放在视图容器之外
+  invoke<boolean>("sensor_driver_missing")
+    .then((missing) => {
+      if (!missing) return;
+      $("driver-warn").classList.remove("hidden");
+      $("driver-warn-link").addEventListener("click", () => {
+        void invoke("open_sensor_driver_site");
+      });
+    })
+    .catch(() => {
+      // 查不到就不提示 —— 误报"没装驱动"比不提示更糟
+    });
+
   // 采样线程异常警示：崩溃时显示，恢复出数后自动隐藏
   await listen("sampler-crashed", () => {
     $("crash-warn").classList.remove("hidden");

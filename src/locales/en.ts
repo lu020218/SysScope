@@ -296,6 +296,8 @@ const en: Record<Keys, string> = {
   "hw.os.installed": "Installed",
   "hw.os.uptime": "Uptime",
   "hw.os.hostname": "Computer name",
+  "app.driverWarn": "PawnIO is not installed — CPU temperature, power, core clocks and motherboard fan speeds are unavailable",
+  "app.driverWarnLink": "Install it",
   "hw.os.sensorDriver": "Sensor driver",
   "hw.sensor.driverOk": "Installed",
   "hw.sensor.driverMissing": "Not installed (no temperature / power / fan)",

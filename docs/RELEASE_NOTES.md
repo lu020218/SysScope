@@ -19,9 +19,20 @@ disk at all.
 
 The trade-off is that PawnIO is installed separately — install it once from
 [pawnio.eu](https://pawnio.eu/) and temperature, power and fan readings come back.
-Without it, those read N/A and everything else works as before. The Hardware tab
-now shows a **Sensor driver** row, so a missing driver is distinguishable from a
-sensor your board simply does not have.
+Without it, those read N/A and everything else works as before: GPU telemetry,
+SSD health, the FPS overlay and every load and rate metric are unaffected.
+
+SysScope now says so rather than leaving you to guess. If the driver is missing, a
+banner names what is unavailable and links to the installer, and the Hardware tab
+carries a **Sensor driver** row — so a missing driver is distinguishable from a
+sensor your board simply does not have. Silence was the actual bug here: a
+quarantined driver and a board without fan headers looked identical.
+
+**Per-core clocks are back.** The new LibreHardwareMonitor renames hybrid-CPU clock
+sensors from `CPU Core #n` to `P-Core #n` / `E-Core #n`, which emptied the per-core
+frequency grid on Intel 12th gen and later. **CPU package power no longer reads
+`0 W`** when the driver is unavailable — the sensor exists but reports zero, and a
+running CPU drawing exactly zero watts is not a reading, it is a missing one.
 
 If Defender already quarantined `sysscope.sys` from an earlier version, nothing
 needs to be restored — that file is gone for good, and this version never creates

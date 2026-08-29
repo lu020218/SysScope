@@ -218,6 +218,8 @@ pub fn run() {
             set_language,
             alerts::set_alert_config,
             hwinfo::hardware_info,
+            hwinfo::sensor_driver_missing,
+            hwinfo::open_sensor_driver_site,
             ping::set_ping_target,
             procdetail::process_detail,
             recorder::start_recording,

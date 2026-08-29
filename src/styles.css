@@ -234,6 +234,28 @@ body {
   display: none;
 }
 
+/* 驱动缺失是可修复状态而非故障，用中性色而非报警红，免得看起来像程序坏了 */
+.driver-warn {
+  background: rgba(250, 204, 21, 0.1);
+  border-bottom-color: rgba(250, 204, 21, 0.35);
+  color: #facc15;
+}
+
+.driver-warn button {
+  margin-left: 10px;
+  font: inherit;
+  color: inherit;
+  background: rgba(250, 204, 21, 0.16);
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  border-radius: 6px;
+  padding: 1px 9px;
+  cursor: pointer;
+}
+
+.driver-warn button:hover {
+  background: rgba(250, 204, 21, 0.26);
+}
+
 /* ---------- 卡片网格 ---------- */
 
 .grid {

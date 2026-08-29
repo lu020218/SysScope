@@ -48,6 +48,13 @@
 
       <div id="crash-warn" class="crash-warn hidden" data-i18n="app.crashWarn">采集线程发生异常，已自动重启，数据可能有短暂缺口</div>
 
+      <!-- 缺少内核驱动时的引导。只在真正检测不到驱动时出现，装上即消失 ——
+           温度/功耗/频率/风扇静默变 N/A 是最容易被误判成硬件故障的情形 -->
+      <div id="driver-warn" class="crash-warn driver-warn hidden">
+        <span data-i18n="app.driverWarn">未安装 PawnIO 驱动，CPU 温度、功耗、核心频率与主板风扇转速不可用</span>
+        <button id="driver-warn-link" data-i18n="app.driverWarnLink">前往安装</button>
+      </div>
+
       <main class="views">
         <div class="view" data-view="home">
         <div class="grid">

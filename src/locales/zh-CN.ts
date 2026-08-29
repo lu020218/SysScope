@@ -287,6 +287,8 @@ const zh = {
   "hw.os.installed": "安装日期",
   "hw.os.uptime": "已运行",
   "hw.os.hostname": "计算机名",
+  "app.driverWarn": "未安装 PawnIO 驱动，CPU 温度、功耗、核心频率与主板风扇转速不可用",
+  "app.driverWarnLink": "前往安装",
   "hw.os.sensorDriver": "传感器驱动",
   "hw.sensor.driverOk": "已安装",
   "hw.sensor.driverMissing": "未安装（温度 / 功耗 / 转速不可用）",

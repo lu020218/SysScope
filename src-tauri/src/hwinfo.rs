@@ -897,6 +897,32 @@ fn collect() -> HwInfo {
     }
 }
 
+/// 传感器驱动是否缺失。前端据此显示安装引导 —— 缺驱动时温度、功耗、
+/// 每核心频率与主板风扇全部变 N/A，不给出原因的话与"这台机器没有这些
+/// 传感器"无从区分。
+#[tauri::command]
+pub fn sensor_driver_missing() -> bool {
+    matches!(pawnio_status().as_deref(), Some("hw.sensor.driverMissing"))
+}
+
+/// 打开 PawnIO 官网。固定 URL 而非接受前端传入的任意地址 —— 这个命令
+/// 只有一个用途，没有理由把"打开任意 URL"的能力暴露给渲染层。
+#[tauri::command]
+pub fn open_sensor_driver_site() {
+    use windows::core::w;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            w!("https://pawnio.eu/"),
+            None,
+            None,
+            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+        );
+    }
+}
+
 static CACHE: OnceLock<HwInfo> = OnceLock::new();
 
 /// 硬件信息（首次调用查询并永久缓存；后续为纯内存读取）。
