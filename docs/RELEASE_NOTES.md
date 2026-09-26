@@ -3,6 +3,15 @@ overlay, and exportable reports.
 
 ![dashboard](https://raw.githubusercontent.com/lu020218/SysScope/master/docs/images/dashboard.png)
 
+## New in 0.3.2
+
+**The Settings dialog no longer runs off the bottom of the window.** Its content
+was never scrollable, so on anything shorter than a very tall window the
+*Restore defaults* button was pushed clean off screen — at 1100×720 it landed
+144 px below the window edge, where it could not be clicked at all. The dialog
+body now scrolls with the title and the button pinned, and it is more compact
+besides, so on a reasonably sized window there is nothing to scroll.
+
 ## New in 0.3.1
 
 **Windows Defender no longer quarantines SysScope's driver.** Temperatures, package
