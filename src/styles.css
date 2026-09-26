@@ -904,12 +904,43 @@ body {
   width: min(440px, 90vw);
 }
 
+/* 设置项最多，必然会超出 .modal-box 的 max-height。没有可滚动子元素时
+   超出部分直接溢出到框外：实测 1100x720 下内容 784px、框高 560px，
+   「恢复默认」按钮被推到窗口下边界之外 144px，根本点不到。
+   这里让正文自己滚动，标题与底部按钮保持固定。
+
+   min-height: 0 是必需的 —— flex 子元素的 min-height 默认是 auto，
+   不写它则该元素不会收缩到内容高度以下，overflow 也就永远不触发。 */
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* 负外边距把滚动条推到贴近框边，正内边距保证内容不被滚动条压住 */
+  padding-right: 6px;
+  margin-right: -6px;
+}
+
+/* 头尾不参与收缩，否则内容一多它们会被挤扁 */
+.modal-head,
+.settings-foot {
+  flex: 0 0 auto;
+}
+
 .settings-box h4 {
   font-size: 11px;
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 1.2px;
-  margin-top: 8px;
+  /* 分组之间画线：正文包进滚动容器后，原先靠 .modal-box 的 gap 撑开的
+     间距没有了，纯靠留白已经分不清哪几项属于同一组 */
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+
+/* 第一组紧接语言选择，不需要重复的分隔线 */
+.settings-body > h4:first-of-type {
+  margin-top: 10px;
 }
 
 .setting-row {
@@ -951,10 +982,12 @@ body {
   height: 16px;
 }
 
+/* 与滚动正文之间画线，让"固定在底部"这件事看得出来 */
 .settings-foot {
   display: flex;
   justify-content: flex-end;
-  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 
 .toast {
